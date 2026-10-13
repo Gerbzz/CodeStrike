@@ -16,9 +16,9 @@ CodeStrike brings a folder, its source files, and local Rust checks into one edi
 
 Windows engineering preview. The native editor is limited to one active file and does not yet have syntax coloring, a debugger, or an accessibility pass. Cargo checks may execute build scripts from the selected project; review that project before running them.
 
-## From folder to check
+## A guarded editing path
 
-Open a local folder and a UTF-8 file, edit it, and search the workspace for related code. Save after CodeStrike checks that the file has not changed on disk. Use the Problems panel to run an explicit offline Cargo command; Cargo can execute the selected project's build scripts and procedural macros.
+The editor shows the chosen workspace, active file, dirty state, search results, diagnostics, and command output. It preserves a file's BOM and consistent newline style, checks for outside changes before saving, and writes a recovery snapshot after edits. Cargo commands run only when explicitly selected; they may execute that workspace's build scripts and procedural macros.
 
 ## Build and use
 
