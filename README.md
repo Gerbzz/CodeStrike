@@ -1,6 +1,26 @@
-# CodeStrike Windows engineering preview
+# CodeStrike
 
-CodeStrike now includes a native Rust source editor preview on its existing rope/search/Cargo core. Open a local folder and file, edit UTF-8 source, save or recover an interrupted edit, search the workspace, and run offline Cargo Check, Build, or Test explicitly from the Problems panel. The editor shows the selected workspace, active file, dirty state, search results, diagnostics, and command output. It preserves a file's BOM and consistent newline style, checks for external changes before save, and leaves unsupported files untouched.
+**by PWDS**
+
+**Stay close to your code.**
+
+CodeStrike brings a folder, its source files, and local Rust checks into one editor. Open a UTF-8 file, make a change, search the workspace, and run Cargo Check, Build, or Test when you choose.
+
+### Highlights
+
+- Edit and save local source with recovery safeguards.
+- Search files in a selected workspace.
+- Read diagnostics and output from explicit Cargo commands.
+
+## Current status
+
+Windows engineering preview. The native editor is limited to one active file and does not yet have syntax coloring, a debugger, or an accessibility pass. Cargo checks may execute build scripts from the selected project; review that project before running them.
+
+## From folder to check
+
+Open a local folder and a UTF-8 file, edit it, and search the workspace for related code. Save after CodeStrike checks that the file has not changed on disk. Use the Problems panel to run an explicit offline Cargo command; Cargo can execute the selected project's build scripts and procedural macros.
+
+## Build and use
 
 Launch on Windows from this directory:
 
