@@ -6,7 +6,7 @@
 
 CodeStrike brings a folder, its source files, and local Rust checks into one editor. Open a UTF-8 file, make a change, search the workspace, and run Cargo Check, Build, or Test when you choose.
 
-### Highlights
+## Highlights
 
 - Edit and save local source with recovery safeguards.
 - Search files in a selected workspace.
