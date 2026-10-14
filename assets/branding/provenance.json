@@ -1,21 +1,70 @@
 {
   "app": "CodeStrike",
   "asset": "assets/branding/CodeStrike.png",
-  "method": "Lossless rectangular extraction of original pixels with ImageMagick. No scaling, recoloring, tracing, generation, transparency fabrication or animal changes. Original cream outside rounded corners retained. Labels excluded.",
-  "coordinate_system": "Origin top-left; crop bounds [left, top, right, bottom), right/bottom exclusive.",
-  "source_sha256": "333494969e42aa593769e0763a6eac98280ade672e395d528640a217d3dbfc13",
-  "crop_bounds": [
-    1360,
-    0,
-    2016,
-    656
-  ],
+  "method": "Measured rounded alpha mask applied to the original 656x656 logo tile, then translated by whole pixels to center its visible bounds. Original visible RGB and masked visible RGBA were verified unchanged.",
+  "source_tile": {
+    "repository": "Gerbzz/CodeStrike",
+    "commit": "69c4e5f5cc6b5f61289d6fc2579fa07a713818d3",
+    "path": "assets/branding/CodeStrike.png",
+    "sha256": "2632638f3a7dbb20d8bafc8ec9d5cc3d2e5934c42d041063111e3e24a68e41b5",
+    "git_blob_sha": "024ecc146b72b6edc625155382ebd63589bc96ed"
+  },
+  "mask_and_centering": {
+    "inset_pixels": 1.5,
+    "masked_alpha_bbox": [
+      33,
+      23,
+      650,
+      632
+    ],
+    "centered_alpha_bbox": [
+      19,
+      23,
+      636,
+      632
+    ],
+    "integer_translation": [
+      -14,
+      0
+    ],
+    "padding_ltrb": [
+      19,
+      23,
+      20,
+      24
+    ],
+    "original_visible_rgb_exact": true,
+    "masked_visible_rgba_exact": true,
+    "transparent_corners": true
+  },
   "dimensions": [
     656,
     656
   ],
-  "sha256": "2632638f3a7dbb20d8bafc8ec9d5cc3d2e5934c42d041063111e3e24a68e41b5",
-  "decoded_rgb_sha256": "f3aeb16fe09bd8d1526c94951b4d778973f9d847c4faa49417acddafa88e2482",
-  "pixel_equality_verified": true,
-  "git_blob_sha": "024ecc146b72b6edc625155382ebd63589bc96ed"
+  "mode": "RGBA",
+  "sha256": "0dcdb1c9ce3c0e0189329178498b4ebab9a4663f10ca9912235cef3d833fae76",
+  "decoded_rgba_sha256": "b726b2d5c53331262fdd797bc221a41a35f5243b32933ecf903a5f600e346d32",
+  "git_blob_sha": "e0146a1570e99732e2b9a0c763da05a65b68c714",
+  "tool": "ImageMagick 7.1.2-34 Q16 x64",
+  "original_tile_provenance": {
+    "app": "CodeStrike",
+    "asset": "assets/branding/CodeStrike.png",
+    "method": "Lossless rectangular extraction of original pixels with ImageMagick. No scaling, recoloring, tracing, generation, transparency fabrication or animal changes. Original cream outside rounded corners retained. Labels excluded.",
+    "coordinate_system": "Origin top-left; crop bounds [left, top, right, bottom), right/bottom exclusive.",
+    "source_sha256": "333494969e42aa593769e0763a6eac98280ade672e395d528640a217d3dbfc13",
+    "crop_bounds": [
+      1360,
+      0,
+      2016,
+      656
+    ],
+    "dimensions": [
+      656,
+      656
+    ],
+    "sha256": "2632638f3a7dbb20d8bafc8ec9d5cc3d2e5934c42d041063111e3e24a68e41b5",
+    "decoded_rgb_sha256": "f3aeb16fe09bd8d1526c94951b4d778973f9d847c4faa49417acddafa88e2482",
+    "pixel_equality_verified": true,
+    "git_blob_sha": "024ecc146b72b6edc625155382ebd63589bc96ed"
+  }
 }
