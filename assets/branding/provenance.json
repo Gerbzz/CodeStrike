@@ -1,0 +1,21 @@
+{
+  "app": "CodeStrike",
+  "asset": "assets/branding/CodeStrike.png",
+  "method": "Lossless rectangular extraction of original pixels with ImageMagick. No scaling, recoloring, tracing, generation, transparency fabrication or animal changes. Original cream outside rounded corners retained. Labels excluded.",
+  "coordinate_system": "Origin top-left; crop bounds [left, top, right, bottom), right/bottom exclusive.",
+  "source_sha256": "333494969e42aa593769e0763a6eac98280ade672e395d528640a217d3dbfc13",
+  "crop_bounds": [
+    1360,
+    0,
+    2016,
+    656
+  ],
+  "dimensions": [
+    656,
+    656
+  ],
+  "sha256": "2632638f3a7dbb20d8bafc8ec9d5cc3d2e5934c42d041063111e3e24a68e41b5",
+  "decoded_rgb_sha256": "f3aeb16fe09bd8d1526c94951b4d778973f9d847c4faa49417acddafa88e2482",
+  "pixel_equality_verified": true,
+  "git_blob_sha": "024ecc146b72b6edc625155382ebd63589bc96ed"
+}
