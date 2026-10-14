@@ -1,10 +1,14 @@
-# CodeStrike
+<p align="center">
+  <img src="assets/branding/CodeStrike.png" alt="Original CodeStrike octopus logo" width="160" height="160">
+</p>
 
-**by PWDS**
+<h1 align="center">CodeStrike</h1>
 
-**Stay close to your code.**
+<p align="center"><strong>by PWDS</strong><br><strong>Stay close to your code.</strong></p>
 
 CodeStrike brings a folder, its source files, and local Rust checks into one editor. Open a UTF-8 file, make a change, search the workspace, and run Cargo Check, Build, or Test when you choose.
+
+<p align="center"><a href="#highlights">Highlights</a> · <a href="#build-and-use">Build and use</a> · <a href="assets/branding">Original artwork</a></p>
 
 ## Highlights
 
