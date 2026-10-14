@@ -4,7 +4,14 @@
 
 <h1 align="center">CodeStrike</h1>
 
-<p align="center"><strong>by PWDS</strong><br><strong>Stay close to your code.</strong></p>
+<p align="center">
+  <a href="https://prowebdevsolutions.com"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/PWDS-logo-orange.svg">
+    <img src="assets/branding/PWDS-logo.png" alt="PWDS company logo" width="120">
+  </picture></a>
+</p>
+
+<p align="center"><strong>Stay close to your code.</strong></p>
 
 CodeStrike brings a folder, its source files, and local Rust checks into one editor. Open a UTF-8 file, make a change, search the workspace, and run Cargo Check, Build, or Test when you choose.
 
@@ -55,3 +62,7 @@ Current limits: one active file, no syntax colors or line-number gutter, result-
 ## Source terms
 
 No first-party license grant is stated for this app in this checkout. `THIRD_PARTY.md` records attribution for identified upstream material; the included donor license files, where present, apply to that material.
+
+## PWDS brand artwork
+
+The company mark in this masthead is the existing [official PWDS logo](https://github.com/Gerbzz/PWDS-Website/blob/main/public/prowebdevsolutions-logo.png), with the [official orange display asset](https://prowebdevsolutions.com/images/prowebdevsolutions-logo-orange.svg) for dark backgrounds. Any app logo above it remains the original Strike suite artwork.
