@@ -15,6 +15,10 @@
 
 CodeStrike brings a folder, its source files, and local Rust checks into one editor. Open a UTF-8 file, make a change, search the workspace, and run Cargo Check, Build, or Test when you choose.
 
+![CodeStrike desktop editor showing an original Rust sample workspace](assets/screenshots/codestrike-editor.png)
+
+*The retained Windows desktop editor rendering a self-authored, three-file Rust sample. Build, Check, and Test are visible controls; none were run for this capture.*
+
 <p align="center"><a href="#highlights">Highlights</a> · <a href="#build-and-use">Build and use</a> · <a href="assets/branding">Original artwork</a></p>
 
 ## Highlights
@@ -26,6 +30,8 @@ CodeStrike brings a folder, its source files, and local Rust checks into one edi
 ## Current status
 
 Windows engineering preview. The native editor is limited to one active file and does not yet have syntax coloring, a debugger, or an accessibility pass. Cargo checks may execute build scripts from the selected project; review that project before running them.
+
+[Screenshot provenance](docs/SCREENSHOT_PROVENANCE.md) records the retained binary, matched source, self-authored sample, and capture limits.
 
 ## A guarded editing path
 
