@@ -39,23 +39,23 @@ This main-branch preview has **one active file**, no syntax coloring or line-num
 
 ## Draft editor
 
-The [Lapce-based CodeStrike draft](https://github.com/Gerbzz/CodeStrike/pull/1) keeps the original repository, settings, and artwork while developing the fuller editor workflow. It is **not merged into `main`**. The screenshots below are unedited captures of its Windows CI run on code commit [`9a77ed67`](https://github.com/Gerbzz/CodeStrike/commit/9a77ed67b69f0c8b0d483d9980a80379f7a62edb); [evidence-only commit `bee871d`](https://github.com/Gerbzz/CodeStrike/commit/bee871db3ac79f2f6e54f062f0da0266884a6526) published the captures and test notes.
+The [Lapce-based CodeStrike draft](https://github.com/Gerbzz/CodeStrike/pull/1) keeps the original repository, settings, and artwork while developing the fuller editor workflow. It is **not merged into `main`**. The images below are app-window crops from verified Windows CI captures of code commit [`9a77ed67`](https://github.com/Gerbzz/CodeStrike/commit/9a77ed67b69f0c8b0d483d9980a80379f7a62edb); [evidence-only commit `bee871d`](https://github.com/Gerbzz/CodeStrike/commit/bee871db3ac79f2f6e54f062f0da0266884a6526) published the full captures and test notes. The editor pixels were not altered.
 
 ### Real tabs and a restorable session
 
 Three distinct source files were edited and saved, the app closed, and the same tabs reopened for further edits in the [Windows acceptance run](https://github.com/Gerbzz/CodeStrike/actions/runs/38757901744). Workspace search opened a clicked hit at its UTF-8 byte column. Per-file Replace All and save-conflict protection were also exercised.
 
-![Unedited Windows CI capture of three tabs in the unmerged CodeStrike candidate](assets/screenshots/codestrike-candidate-tabs.jpg)
+![App-window crop of three tabs in the unmerged CodeStrike candidate](assets/screenshots/codestrike-candidate-tabs-app.png)
 
-*Unmerged candidate, not the application on `main`. The surrounding terminal and desktop are part of the original CI capture.*
+*Unmerged candidate, not the application on `main`. [Full original capture and crop provenance](docs/CANDIDATE_SCREENSHOTS.md).*
 
 ### Preview a workspace change before writing
 
 The draft editor has a bounded multi-file replacement flow: preview paths, positions, context, and replacement text; confirm Apply; use Checked Undo while the session is open. The Windows GUI probe previewed two files without changing them, refused an Apply after an external edit, applied two replacements while preserving UTF-8 BOM/CRLF and LF bytes, refused Undo over a newer edit, and then restored the originals exactly. Ignored, read-only, and unsupported files were not changed.
 
-![Unedited Windows CI capture of the two-file workspace replacement preview in the unmerged candidate](assets/screenshots/codestrike-candidate-replace-preview.jpg)
+![App-window crop of the two-file workspace replacement preview in the unmerged candidate](assets/screenshots/codestrike-candidate-replace-preview-app.png)
 
-*Unmerged candidate, not `main`. [The checked Undo capture](assets/screenshots/codestrike-candidate-undo.jpg) and [full evidence with hashes](docs/CANDIDATE_SCREENSHOTS.md) show the rest of this bounded test.*
+*Unmerged candidate, not `main`. [The checked Undo app-window crop](assets/screenshots/codestrike-candidate-undo-app.png) and [full original captures with hashes](docs/CANDIDATE_SCREENSHOTS.md) show the rest of this bounded test.*
 
 The draft still needs crash-interruption and cross-session recovery tests, automatic cleanup of visible backups, broader search/replace cases, local language-tool verification, accessibility review, and clean-machine installation. It is not yet a distribution.
 
