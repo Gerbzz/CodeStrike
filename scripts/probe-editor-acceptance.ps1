@@ -210,7 +210,7 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 3
         Capture-Candidate 'workspace_search'
-        Click-WindowOffset $editor 425 405
+        Click-WindowOffset $editor 425 430
         Start-Sleep -Seconds 2
         Capture-Candidate 'workspace_hit_click'
         Click-Editor $editor
@@ -234,12 +234,13 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 2
         Capture-Candidate 'file_find'
-        Click-WindowPoint $editor 0.45 0.18
+        Click-WindowOffset $editor 340 108
         Start-Sleep -Milliseconds 500
-        Click-WindowPoint $editor 0.55 0.23
+        Capture-Candidate 'replace_toggled'
+        Click-WindowOffset $editor 440 140
         [System.Windows.Forms.SendKeys]::SendWait('codestrike_replaced')
         Capture-Candidate 'replace_ready'
-        Click-WindowPoint $editor 0.79 0.23
+        Click-WindowOffset $editor 600 140
         [System.Windows.Forms.SendKeys]::SendWait('^s')
         Start-Sleep -Seconds 2
         $replaced = [System.IO.File]::ReadAllText($path)
