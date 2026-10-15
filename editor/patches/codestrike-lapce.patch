@@ -1692,10 +1692,86 @@ index 00000000..7344416a
 +    }
 +}
 diff --git a/lapce-proxy/src/dispatch.rs b/lapce-proxy/src/dispatch.rs
-index 35a42c8d..7ac28b5f 100644
+index 35a42c8d..fc9e518b 100644
 --- a/lapce-proxy/src/dispatch.rs
 +++ b/lapce-proxy/src/dispatch.rs
-@@ -144,0 +145,32 @@ fn handle_notification(&mut self, rpc: ProxyNotification) {
+@@ -54,0 +55,71 @@
++fn open_buffer_path<T>(
++    buffers: &HashMap<PathBuf, T>,
++    event_path: &Path,
++) -> Option<PathBuf> {
++    if buffers.contains_key(event_path) {
++        return Some(event_path.to_path_buf());
++    }
++
++    #[cfg(windows)]
++    {
++        fn local_path(path: &Path) -> Option<&str> {
++            let path = path.to_str()?;
++            if let Some(stripped) = path.strip_prefix(r"\\?\") {
++                let bytes = stripped.as_bytes();
++                if bytes.len() >= 3
++                    && bytes[1] == b':'
++                    && (bytes[2] == b'\\' || bytes[2] == b'/')
++                {
++                    return Some(stripped);
++                }
++            }
++            Some(path)
++        }
++
++        let event = local_path(event_path)?;
++        buffers
++            .keys()
++            .find(|path| {
++                local_path(path).is_some_and(|open| open.eq_ignore_ascii_case(event))
++            })
++            .cloned()
++    }
++
++    #[cfg(not(windows))]
++    None
++}
++
++#[cfg(test)]
++mod codestrike_watched_path_tests {
++    use super::*;
++
++    #[test]
++    fn resolves_an_exact_open_path_only() {
++        let open = PathBuf::from("/tmp/code/main.rs");
++        let buffers = HashMap::from([(open.clone(), ())]);
++        assert_eq!(open_buffer_path(&buffers, &open), Some(open));
++        assert_eq!(
++            open_buffer_path(&buffers, Path::new("/tmp/code/main.rs.bak")),
++            None
++        );
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn resolves_windows_verbatim_event_to_the_original_open_key() {
++        let open = PathBuf::from(r"\\?\D:\a\fixture\main.rs");
++        let buffers = HashMap::from([(open.clone(), ())]);
++        assert_eq!(
++            open_buffer_path(&buffers, Path::new(r"D:\a\fixture\main.rs")),
++            Some(open)
++        );
++
++        let open = PathBuf::from(r"D:\a\fixture\new.rs");
++        let buffers = HashMap::from([(open.clone(), ())]);
++        assert_eq!(
++            open_buffer_path(&buffers, Path::new(r"\\?\D:\a\fixture\new.rs")),
++            Some(open)
++        );
++    }
++}
++
+@@ -119,0 +191,3 @@ fn handle_notification(&mut self, rpc: ProxyNotification) {
++                let Some(path) = open_buffer_path(&self.buffers, &path) else {
++                    return;
++                };
+@@ -144,0 +219,32 @@ fn handle_notification(&mut self, rpc: ProxyNotification) {
 +            CleanFileReloaded { path, rev } => {
 +                if let Some(buffer) = self.buffers.get_mut(&path) {
 +                    if let Err(err) = buffer.accept_clean_reload(rev) {
@@ -1734,33 +1810,6 @@ index 62067e17..4d150fb8 100644
 +++ b/lapce-proxy/src/lib.rs
 @@ -4,0 +5 @@
 +pub mod codestrike_replace;
-diff --git a/lapce-proxy/src/watcher.rs b/lapce-proxy/src/watcher.rs
-index 087849fd..85c29a5d 100644
---- a/lapce-proxy/src/watcher.rs
-+++ b/lapce-proxy/src/watcher.rs
-@@ -77 +77,12 @@ pub fn notify<T: Notify + 'static>(&mut self, peer: T) {
--            while let Ok(Ok(event)) = rx_event.recv() {
-+            loop {
-+                let event = match rx_event.recv() {
-+                    Ok(Ok(event)) => event,
-+                    Ok(Err(err)) => {
-+                        tracing::error!(
-+                            "CodeStrike watcher stopped after error: {err}"
-+                        );
-+                        break;
-+                    }
-+                    Err(_) => break,
-+                };
-+                tracing::debug!(kind = ?event.kind, paths = ?event.paths, "CodeStrike watcher received event");
-@@ -91,0 +103,5 @@ pub fn notify<T: Notify + 'static>(&mut self, peer: T) {
-+                tracing::debug!(
-+                    matched = events.len(),
-+                    "CodeStrike watcher matched event"
-+                );
-+
-@@ -149,0 +166,2 @@ fn watch_impl(
-+            } else {
-+                tracing::debug!(path = ?w.path, "CodeStrike watcher registered path");
 diff --git a/lapce-rpc/src/proxy.rs b/lapce-rpc/src/proxy.rs
 index b58b2ad3..7e870672 100644
 --- a/lapce-rpc/src/proxy.rs
