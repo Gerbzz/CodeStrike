@@ -1,0 +1,36 @@
+name: CodeStrike watched file paths
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [draft/lapce-foundation-migration]
+    paths:
+      - .github/workflows/watched-path-tests.yml
+      - editor/patches/codestrike-lapce.patch
+      - scripts/prepare-lapce.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  windows-watched-paths:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - name: Preserve pinned upstream LF source
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: Apply the candidate patch
+        shell: pwsh
+        run: .\scripts\prepare-lapce.ps1
+      - name: Test exact and Windows-equivalent watched file paths
+        shell: pwsh
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_watched_path_tests --lib
