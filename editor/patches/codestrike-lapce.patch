@@ -325,7 +325,7 @@ index 4284977..987b4a3 100644
 -                return ProjectDirs::from_path(parent.join("lapce-data"));
 +                return ProjectDirs::from_path(parent.join("codestrike-data"));
 diff --git a/lapce-proxy/src/buffer.rs b/lapce-proxy/src/buffer.rs
-index d49951f..f5717ab 100644
+index d49951f..36bc542 100644
 --- a/lapce-proxy/src/buffer.rs
 +++ b/lapce-proxy/src/buffer.rs
 @@ -5,0 +6 @@
@@ -472,7 +472,7 @@ index d49951f..f5717ab 100644
 +            Buffer::new(BufferId::next(), path).rope.to_string(),
 +            "edited\n"
 +        );
-+        assert!(!dir.join("main.rsbak").exists());
++        assert!(!dir.join("main.rs.bak").exists());
 +        fs::remove_dir_all(dir).unwrap();
 +    }
 +
@@ -492,7 +492,7 @@ index d49951f..f5717ab 100644
 +        let (dir, path) = fixture();
 +        let mut buffer = Buffer::new(BufferId::next(), path.clone());
 +        buffer.rope = Rope::from("our edit\n");
-+        let backup = dir.join("main.rsbak");
++        let backup = dir.join("main.rs.bak");
 +        fs::write(&backup, "keep this backup\n").unwrap();
 +        assert!(buffer.save(buffer.rev, false).is_err());
 +        assert_eq!(fs::read_to_string(&path).unwrap(), "original\n");

@@ -49,11 +49,9 @@ jobs:
         shell: pwsh
         run: cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check
       - name: Compile Windows editor
+        id: compile
         shell: pwsh
         run: cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
-      - name: Test save and conflict protection
-        shell: pwsh
-        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_save_tests --lib
       - name: Smoke test candidate executable
         shell: pwsh
         run: |
@@ -73,3 +71,7 @@ jobs:
         run: |
           .\scripts\probe-windows-editor.ps1 -Startup
           .\scripts\probe-windows-editor.ps1
+      - name: Test save and conflict protection
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_save_tests --lib

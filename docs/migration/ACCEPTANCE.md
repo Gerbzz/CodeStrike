@@ -40,4 +40,10 @@ The probe now invokes `--wait` and must be rerun. No GUI feature acceptance
 or release has been recorded yet. The following
 [save patch run](https://github.com/Gerbzz/CodeStrike/actions/runs/38715669757)
 stopped at one Rust callback type-inference error before its tests; the draft
-now supplies the explicit RPC result type. Do not advertise pending rows.
+now supplies the explicit RPC result type. The next
+[run](https://github.com/Gerbzz/CodeStrike/actions/runs/38716861515)
+compiled the current source and passed two of three save tests. The backup
+test used the wrong filename (`main.rsbak` instead of Lapce's actual
+`main.rs.bak`), so the fixture was corrected. That run skipped the GUI probe
+after the test failure; the workflow now probes GUI before the tests and runs
+the tests even if the probe fails. Do not advertise pending rows.

@@ -87,6 +87,9 @@ end-to-end product test.
   Source checkout and Rust build can use far more disk than the release
   download. No local build, dependency download, or broad clone while the
   office machine's 20 GiB free-space floor and SkinStrike build slot apply.
+  The hosted Windows runner used Rust 1.98.1 and reported upstream warnings
+  about float type fallback that a future compiler may reject; that is a
+  maintenance cost of pinning v0.4.6, separate from CodeStrike's patch.
 - [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
   states standard hosted runners are free for public repositories; larger
   runners are charged. Public draft PR #1 has a `windows-latest` workflow with
@@ -99,6 +102,9 @@ end-to-end product test.
   short-lived launcher, so that step must be rerun with `--wait`. The
   [first save patch run](https://github.com/Gerbzz/CodeStrike/actions/runs/38715669757)
   found a callback type-inference error before tests; the patch now names the
-  RPC result type explicitly.
+  RPC result type explicitly. The
+  [next run](https://github.com/Gerbzz/CodeStrike/actions/runs/38716861515)
+  compiled and passed two save tests; the third test fixture named the wrong
+  backup path and has been corrected. GUI remains untested.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.
