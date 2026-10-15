@@ -411,9 +411,10 @@ try {
         $path = Join-Path $fixture 'clean_reload.rs'
         [System.IO.File]::WriteAllText($path, "// original`n")
         $editor = Start-Candidate @($fixture, $path)
+        Start-Sleep -Seconds 2
         $external = "// external_version`n"
         [System.IO.File]::WriteAllText($path, $external)
-        Start-Sleep -Seconds 3
+        Start-Sleep -Seconds 8
         Capture-Candidate 'clean_reload_external'
         Click-Editor $editor
         [System.Windows.Forms.SendKeys]::SendWait('^{END}')

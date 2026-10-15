@@ -218,14 +218,18 @@ index 10705772..b966ed80 100644
 -                    let path = path.join("./.lapce/settings.toml");
 +                    let path = path.join("./.codestrike/settings.toml");
 diff --git a/lapce-app/src/doc.rs b/lapce-app/src/doc.rs
-index b20d13a1..59f5d248 100644
+index b20d13a1..630d8d79 100644
 --- a/lapce-app/src/doc.rs
 +++ b/lapce-app/src/doc.rs
 @@ -76 +76,2 @@
 -    command::{CommandKind, LapceCommand},
 +    alert::AlertButton,
 +    command::{CommandKind, InternalCommand, LapceCommand},
-@@ -1406,8 +1407,13 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+@@ -493,0 +495,3 @@ pub fn handle_file_changed(&self, content: Rope) {
++            if let DocContent::File { path, .. } = self.content.get_untracked() {
++                self.common.proxy.clean_file_reloaded(path, self.rev());
++            }
+@@ -1406,8 +1410,13 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
 -            let send = create_ext_action(self.scope, move |result| {
 -                if let Ok(ProxyResponse::SaveResponse {}) = result {
 -                    let current_rev = buffer.with_untracked(|buffer| buffer.rev());
@@ -247,7 +251,7 @@ index b20d13a1..59f5d248 100644
 +                            });
 +                            after_action();
 +                        }
-@@ -1414,0 +1421,11 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+@@ -1414,0 +1424,11 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
 +                    Err(err) => internal_command.send(InternalCommand::ShowAlert {
 +                        title: "CodeStrike could not save this file".to_string(),
 +                        msg: format!("{}. Your unsaved edits remain open. Check the file and any backup before retrying.", err.message),
@@ -259,7 +263,7 @@ index b20d13a1..59f5d248 100644
 +                        }],
 +                    }),
 +                    _ => {}
-@@ -1416 +1433,2 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+@@ -1416 +1436,2 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
 -            });
 +                },
 +            );
@@ -787,7 +791,7 @@ index 6acc85df..ea2c9d08 100644
 +[dev-dependencies]
 +tempfile = { workspace = true }
 diff --git a/lapce-proxy/src/buffer.rs b/lapce-proxy/src/buffer.rs
-index d49951fa..d1cae82d 100644
+index d49951fa..ef014af9 100644
 --- a/lapce-proxy/src/buffer.rs
 +++ b/lapce-proxy/src/buffer.rs
 @@ -5,0 +6 @@
@@ -849,7 +853,7 @@ index d49951fa..d1cae82d 100644
 -            fs::copy(&path, bak_file_path)?;
 +        if bak_file_path.exists() {
 +            return Err(anyhow!("existing save backup must be recovered first"));
-@@ -99,8 +128,16 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -99,7 +128,40 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 -        let mut f = fs::OpenOptions::new()
 -            .create(true)
 -            .write(true)
@@ -857,7 +861,6 @@ index d49951fa..d1cae82d 100644
 -            .open(&path)?;
 -        for chunk in self.rope.iter_chunks(..self.rope.len()) {
 -            f.write_all(chunk.as_bytes())?;
--        }
 +        static SAVE_ID: AtomicU64 = AtomicU64::new(0);
 +        let temp_path = path.parent().unwrap_or(Path::new(".")).join(format!(
 +            ".codestrike-save-{}-{}.tmp",
@@ -874,10 +877,7 @@ index d49951fa..d1cae82d 100644
 +            }
 +            f.sync_all()?;
 +            drop(f);
-@@ -108,3 +145,23 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
--        self.mod_time = get_mod_time(&path);
--        if !new_file {
--            fs::remove_file(bak_file_path)?;
++
 +            if fingerprint_file(&path)? != self.disk_fingerprint {
 +                return Err(anyhow!(
 +                    "file changed during save; original left untouched"
@@ -901,10 +901,13 @@ index d49951fa..d1cae82d 100644
 +        })();
 +        if result.is_err() {
 +            let _ = fs::remove_file(&temp_path);
-@@ -111,0 +169,2 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -106,0 +169,2 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 +        result
 +    }
-@@ -112,0 +172,17 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -108,3 +172,14 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+-        self.mod_time = get_mod_time(&path);
+-        if !new_file {
+-            fs::remove_file(bak_file_path)?;
 +    pub fn accept_workspace_replacement(
 +        &mut self,
 +        before: u64,
@@ -919,10 +922,25 @@ index d49951fa..d1cae82d 100644
 +            return Err(anyhow!(
 +                "open buffer changed while workspace replacement was applying"
 +            ));
-+        }
+@@ -111,0 +187,4 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 +        self.disk_fingerprint = Some(after);
 +        self.mod_time = get_mod_time(&self.path);
-@@ -350,0 +427,162 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
++        Ok(())
++    }
+@@ -112,0 +192,12 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
++    pub fn accept_clean_reload(&mut self, rev: u64) -> Result<()> {
++        let disk = fingerprint_file(&self.path)?;
++        if self.read_only
++            || self.rev != rev
++            || disk != Some(fingerprint(self.rope.to_string().as_bytes()))
++        {
++            return Err(anyhow!(
++                "clean reload no longer matches the open buffer and disk"
++            ));
++        }
++        self.disk_fingerprint = disk;
++        self.mod_time = get_mod_time(&self.path);
+@@ -350,0 +442,219 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
 +
 +pub(crate) fn fingerprint(bytes: &[u8]) -> u64 {
 +    let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -978,6 +996,63 @@ index d49951fa..d1cae82d 100644
 +        fs::write(&path, "external edit\n").unwrap();
 +        assert!(buffer.save(buffer.rev, false).is_err());
 +        assert_eq!(fs::read_to_string(&path).unwrap(), "external edit\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn accepted_clean_reload_allows_a_later_save() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        fs::write(&path, "external edit\n").unwrap();
++        buffer.rope = Rope::from("external edit\n");
++        buffer.rev += 1;
++        buffer.accept_clean_reload(buffer.rev).unwrap();
++        buffer.rope = Rope::from("external edit\nlocal edit\n");
++        buffer.rev += 1;
++        buffer.save(buffer.rev, false).unwrap();
++        assert_eq!(fs::read(&path).unwrap(), b"external edit\nlocal edit\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn clean_reload_ack_refuses_a_stale_revision() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        fs::write(&path, "external edit\n").unwrap();
++        buffer.rope = Rope::from("external edit\nlocal edit\n");
++        buffer.rev += 2;
++        assert!(buffer.accept_clean_reload(buffer.rev - 1).is_err());
++        assert!(buffer.save(buffer.rev, false).is_err());
++        assert_eq!(fs::read(&path).unwrap(), b"external edit\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn clean_reload_ack_refuses_unsaved_content() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        fs::write(&path, "external edit\n").unwrap();
++        buffer.rope = Rope::from("unsaved local edit\n");
++        buffer.rev += 1;
++        assert!(buffer.accept_clean_reload(buffer.rev).is_err());
++        assert!(buffer.save(buffer.rev, false).is_err());
++        assert_eq!(fs::read(&path).unwrap(), b"external edit\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn clean_reload_ack_refuses_disk_changes_after_the_reload() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        fs::write(&path, "external edit\n").unwrap();
++        buffer.rope = Rope::from("external edit\n");
++        buffer.rev += 1;
++        fs::write(&path, "newer external edit\n").unwrap();
++        assert!(buffer.accept_clean_reload(buffer.rev).is_err());
++        buffer.rope = Rope::from("external edit\nlocal edit\n");
++        buffer.rev += 1;
++        assert!(buffer.save(buffer.rev, false).is_err());
++        assert_eq!(fs::read(&path).unwrap(), b"newer external edit\n");
 +        fs::remove_dir_all(dir).unwrap();
 +    }
 +
@@ -1617,10 +1692,19 @@ index 00000000..7344416a
 +    }
 +}
 diff --git a/lapce-proxy/src/dispatch.rs b/lapce-proxy/src/dispatch.rs
-index 35a42c8d..3f160b2b 100644
+index 35a42c8d..7ac28b5f 100644
 --- a/lapce-proxy/src/dispatch.rs
 +++ b/lapce-proxy/src/dispatch.rs
-@@ -144,0 +145,23 @@ fn handle_notification(&mut self, rpc: ProxyNotification) {
+@@ -144,0 +145,32 @@ fn handle_notification(&mut self, rpc: ProxyNotification) {
++            CleanFileReloaded { path, rev } => {
++                if let Some(buffer) = self.buffers.get_mut(&path) {
++                    if let Err(err) = buffer.accept_clean_reload(rev) {
++                        tracing::debug!(
++                            "Clean file reload snapshot not accepted: {err}"
++                        );
++                    }
++                }
++            }
 +            WorkspaceFilesReplaced { files } => {
 +                for (path, before, after) in files {
 +                    if let Some(buffer) = self.buffers.get_mut(&path) {
@@ -1651,15 +1735,24 @@ index 62067e17..4d150fb8 100644
 @@ -4,0 +5 @@
 +pub mod codestrike_replace;
 diff --git a/lapce-rpc/src/proxy.rs b/lapce-rpc/src/proxy.rs
-index b58b2ad3..8bb9f044 100644
+index b58b2ad3..7e870672 100644
 --- a/lapce-rpc/src/proxy.rs
 +++ b/lapce-rpc/src/proxy.rs
-@@ -240,0 +241,3 @@ pub enum ProxyNotification {
+@@ -240,0 +241,7 @@ pub enum ProxyNotification {
++    CleanFileReloaded {
++        path: PathBuf,
++        rev: u64,
++    },
 +    WorkspaceFilesReplaced {
 +        files: Vec<(PathBuf, u64, u64)>,
 +    },
-@@ -595,0 +599,4 @@ pub fn notification(&self, notification: ProxyNotification) {
+@@ -595,0 +603,4 @@ pub fn notification(&self, notification: ProxyNotification) {
 +    pub fn workspace_files_replaced(&self, files: Vec<(PathBuf, u64, u64)>) {
 +        self.notification(ProxyNotification::WorkspaceFilesReplaced { files });
++    }
++
+@@ -1096,0 +1108,4 @@ pub fn update(&self, path: PathBuf, delta: RopeDelta, rev: u64) {
++    pub fn clean_file_reloaded(&self, path: PathBuf, rev: u64) {
++        self.notification(ProxyNotification::CleanFileReloaded { path, rev });
 +    }
 +
