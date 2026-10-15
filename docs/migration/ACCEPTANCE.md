@@ -46,4 +46,10 @@ compiled the current source and passed two of three save tests. The backup
 test used the wrong filename (`main.rsbak` instead of Lapce's actual
 `main.rs.bak`), so the fixture was corrected. That run skipped the GUI probe
 after the test failure; the workflow now probes GUI before the tests and runs
-the tests even if the probe fails. Do not advertise pending rows.
+the tests even if the probe fails. The following
+[run](https://github.com/Gerbzz/CodeStrike/actions/runs/38718055396)
+compiled and passed branded CLI smoke plus all three save tests. The GUI
+process exposed a window handle but an empty native title, so the title-only
+probe failed before capturing pixels. The probe now brings that window forward
+and captures the screen for direct visual inspection. Do not advertise
+pending rows.

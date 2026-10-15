@@ -105,6 +105,11 @@ end-to-end product test.
   RPC result type explicitly. The
   [next run](https://github.com/Gerbzz/CodeStrike/actions/runs/38716861515)
   compiled and passed two save tests; the third test fixture named the wrong
-  backup path and has been corrected. GUI remains untested.
+  backup path and has been corrected. The
+  [subsequent run](https://github.com/Gerbzz/CodeStrike/actions/runs/38718055396)
+  compiled and passed all three save tests. The debug executable was 110.94
+  MiB, and the hosted runner had 30.63 GiB free after build. This is not an
+  installed or compressed release footprint. Its GUI process had a window
+  handle with an empty native title; visual capture is the next gate.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.

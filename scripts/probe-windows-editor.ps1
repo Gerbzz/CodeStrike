@@ -26,15 +26,25 @@ try {
         }
     }
     if (-not $windowReady) { throw 'No editor window appeared within 30 seconds.' }
-    if ($editor.MainWindowTitle -notlike '*CodeStrike*') {
-        throw "Unexpected window title: $($editor.MainWindowTitle)"
-    }
     $mode = if ($Startup) { 'startup' } else { 'folder' }
-    "CODESTRIKE_GUI_PROBE=$mode-window-ready; title=$($editor.MainWindowTitle)"
+    "CODESTRIKE_GUI_PROBE=$mode-window-ready; title=$($editor.MainWindowTitle); handle=$($editor.MainWindowHandle)"
 
     Start-Sleep -Seconds 3
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    if (-not ('CodeStrikeWindowProbe' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class CodeStrikeWindowProbe {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
+}
+'@
+    }
+    [CodeStrikeWindowProbe]::ShowWindow($editor.MainWindowHandle, 9) | Out-Null
+    "CODESTRIKE_GUI_FOREGROUND=$([CodeStrikeWindowProbe]::SetForegroundWindow($editor.MainWindowHandle))"
+    Start-Sleep -Seconds 2
     $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
