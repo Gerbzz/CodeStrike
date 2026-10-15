@@ -1,5 +1,5 @@
 diff --git a/lapce-app/Cargo.toml b/lapce-app/Cargo.toml
-index c0f780d..6f6325b 100644
+index c0f780dd..6f6325ba 100644
 --- a/lapce-app/Cargo.toml
 +++ b/lapce-app/Cargo.toml
 @@ -75 +75 @@ features  = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndM
@@ -9,7 +9,7 @@ index c0f780d..6f6325b 100644
 +codestrike-online-grammars = []
 +codestrike-online-catalog = []
 diff --git a/lapce-app/src/about.rs b/lapce-app/src/about.rs
-index 75f9281..169e703 100644
+index 75f92819..169e7034 100644
 --- a/lapce-app/src/about.rs
 +++ b/lapce-app/src/about.rs
 @@ -9 +9 @@
@@ -68,7 +68,7 @@ index 75f9281..169e703 100644
 +                || "Editor foundation: Lapce (Apache-2.0)".to_string(),
 +                || AboutUri::LAPCE.to_string(),
 diff --git a/lapce-app/src/app.rs b/lapce-app/src/app.rs
-index d3cbc52..38584b6 100644
+index d3cbc526..38584b6b 100644
 --- a/lapce-app/src/app.rs
 +++ b/lapce-app/src/app.rs
 @@ -47 +47 @@
@@ -198,21 +198,21 @@ index d3cbc52..38584b6 100644
 +            let mut menu = Menu::new("CodeStrike")
 +                .entry(MenuItem::new("About CodeStrike").action(move || {
 diff --git a/lapce-app/src/command.rs b/lapce-app/src/command.rs
-index c0cc3b8..26eae58 100644
+index c0cc3b81..26eae589 100644
 --- a/lapce-app/src/command.rs
 +++ b/lapce-app/src/command.rs
 @@ -551 +551 @@ pub enum LapceWorkbenchCommand {
 -    #[strum(message = "About Lapce")]
 +    #[strum(message = "About CodeStrike")]
 diff --git a/lapce-app/src/config.rs b/lapce-app/src/config.rs
-index 1070577..b966ed8 100644
+index 10705772..b966ed80 100644
 --- a/lapce-app/src/config.rs
 +++ b/lapce-app/src/config.rs
 @@ -217 +217 @@ fn merge_config(
 -                    let path = path.join("./.lapce/settings.toml");
 +                    let path = path.join("./.codestrike/settings.toml");
 diff --git a/lapce-app/src/doc.rs b/lapce-app/src/doc.rs
-index b20d13a..59f5d24 100644
+index b20d13a1..59f5d248 100644
 --- a/lapce-app/src/doc.rs
 +++ b/lapce-app/src/doc.rs
 @@ -76 +76,2 @@
@@ -258,7 +258,7 @@ index b20d13a..59f5d24 100644
 +                },
 +            );
 diff --git a/lapce-app/src/editor.rs b/lapce-app/src/editor.rs
-index d878e72..51e49fb 100644
+index d878e720..51e49fbd 100644
 --- a/lapce-app/src/editor.rs
 +++ b/lapce-app/src/editor.rs
 @@ -1085,3 +1085,2 @@ pub fn run_focus_command(
@@ -267,8 +267,18 @@ index d878e72..51e49fb 100644
 -                }
 +                self.common.find.replace_active.set(true);
 +                self.common.find.replace_focus.set(true);
+diff --git a/lapce-app/src/editor/location.rs b/lapce-app/src/editor/location.rs
+index 35e79f56..e74885c7 100644
+--- a/lapce-app/src/editor/location.rs
++++ b/lapce-app/src/editor/location.rs
+@@ -21,0 +22 @@ pub enum EditorPosition {
++    LineCol(usize, usize),
+@@ -29,0 +31,3 @@ pub fn to_offset(&self, text: &impl RopeText) -> usize {
++            EditorPosition::LineCol(line, byte_col) => {
++                text.offset_of_line_col(*line, *byte_col)
++            }
 diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
-index fb85013..c7ac84f 100644
+index fb850137..c7ac84ff 100644
 --- a/lapce-app/src/palette.rs
 +++ b/lapce-app/src/palette.rs
 @@ -886 +886 @@ fn set_run_configs(&self, content: String) {
@@ -277,8 +287,17 @@ index fb85013..c7ac84f 100644
 @@ -945 +945 @@ fn get_run_configs(&self) {
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
+diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
+index 0cc1edd4..4ec02f09 100644
+--- a/lapce-app/src/panel/global_search_view.rs
++++ b/lapce-app/src/panel/global_search_view.rs
+@@ -280 +280 @@ fn search_result(
+-                                                        EditorPosition::Line(
++                                                        EditorPosition::LineCol(
+@@ -282,0 +283 @@ fn search_result(
++                                                            start,
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
-index c229528..a1ff42b 100644
+index c229528f..a1ff42b9 100644
 --- a/lapce-app/src/plugin.rs
 +++ b/lapce-app/src/plugin.rs
 @@ -186 +186,3 @@ pub fn new(
@@ -295,14 +314,14 @@ index c229528..a1ff42b 100644
 -        if !is_latest {
 +        if cfg!(feature = "codestrike-online-catalog") && !is_latest {
 diff --git a/lapce-app/src/terminal/panel.rs b/lapce-app/src/terminal/panel.rs
-index 81455b2..90657bf 100644
+index 81455b2d..90657bfe 100644
 --- a/lapce-app/src/terminal/panel.rs
 +++ b/lapce-app/src/terminal/panel.rs
 @@ -521 +521 @@ fn get_run_config_by_name(&self, name: &str) -> Option<RunDebugConfig> {
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/title.rs b/lapce-app/src/title.rs
-index 5933603..b6cdf3d 100644
+index 59336034..b6cdf3db 100644
 --- a/lapce-app/src/title.rs
 +++ b/lapce-app/src/title.rs
 @@ -47,8 +46,0 @@ fn left(
@@ -318,14 +337,14 @@ index 5933603..b6cdf3d 100644
 -                    .entry(MenuItem::new("About Lapce").action(move || {
 +                    .entry(MenuItem::new("About CodeStrike").action(move || {
 diff --git a/lapce-core/build.rs b/lapce-core/build.rs
-index d4a7d15..695113b 100644
+index d4a7d155..695113b6 100644
 --- a/lapce-core/build.rs
 +++ b/lapce-core/build.rs
 @@ -29 +29 @@ fn main() -> Result<()> {
 -        pub const NAME: &str = "Lapce-{branch}";
 +        pub const NAME: &str = "CodeStrike";
 diff --git a/lapce-core/src/directory.rs b/lapce-core/src/directory.rs
-index 4284977..987b4a3 100644
+index 42849773..987b4a3c 100644
 --- a/lapce-core/src/directory.rs
 +++ b/lapce-core/src/directory.rs
 @@ -16 +16 @@ fn project_dirs() -> Option<ProjectDirs> {
@@ -335,7 +354,7 @@ index 4284977..987b4a3 100644
 -                return ProjectDirs::from_path(parent.join("lapce-data"));
 +                return ProjectDirs::from_path(parent.join("codestrike-data"));
 diff --git a/lapce-proxy/src/buffer.rs b/lapce-proxy/src/buffer.rs
-index d49951f..36bc542 100644
+index d49951fa..7d7c04cb 100644
 --- a/lapce-proxy/src/buffer.rs
 +++ b/lapce-proxy/src/buffer.rs
 @@ -5,0 +6 @@
@@ -344,45 +363,60 @@ index d49951f..36bc542 100644
 +    sync::atomic::{AtomicU64, Ordering},
 @@ -26,0 +29 @@ pub struct Buffer {
 +    disk_fingerprint: Option<u64>,
-@@ -31,2 +34,7 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+@@ -31,2 +34,22 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
 -        let (s, read_only) = match load_file(&path) {
 -            Ok(s) => (s, false),
 +        let loaded = (|| -> Result<(String, u64)> {
 +            let bytes = fs::read(&path)?;
 +            let fingerprint = fingerprint(&bytes);
-+            Ok((String::from_utf8(bytes)?, fingerprint))
++            if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]) {
++                return Err(anyhow!(
++                    "Unsupported UTF-16 encoding; CodeStrike edits UTF-8 text only. This file is read-only"
++                ));
++            }
++            if bytes.contains(&0) {
++                return Err(anyhow!(
++                    "Binary or unsupported encoded file contains NUL bytes; editing is disabled"
++                ));
++            }
++            let text = String::from_utf8(bytes).map_err(|err| {
++                anyhow!(
++                    "Unsupported text encoding; CodeStrike edits UTF-8 text only ({err}). This file is read-only"
++                )
++            })?;
++            Ok((text, fingerprint))
 +        })();
 +        let (s, read_only, disk_fingerprint) = match loaded {
 +            Ok((s, fingerprint)) => (s, false, Some(fingerprint)),
-@@ -38 +46 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+@@ -38 +61 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
 -                            ("Permission Denied".to_string(), true)
 +                            ("Permission Denied".to_string(), true, None)
-@@ -40 +48 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+@@ -40 +63 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
 -                        ErrorKind::NotFound => ("".to_string(), false),
 +                        ErrorKind::NotFound => ("".to_string(), false, None),
-@@ -42 +50 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+@@ -42 +65 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
 -                            ("File too big (out of memory)".to_string(), false)
 +                            ("File too big (out of memory)".to_string(), true, None)
-@@ -44 +52 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+@@ -44 +67 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
 -                        _ => (format!("Not supported: {err}"), true),
 +                        _ => (format!("Not supported: {err}"), true, None),
-@@ -46 +54 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+@@ -46 +69 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
 -                    None => (format!("Not supported: {err}"), true),
 +                    None => (format!("Not supported: {err}"), true, None),
-@@ -61,0 +70 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+@@ -61,0 +85 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
 +            disk_fingerprint,
-@@ -86,0 +96,5 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -86,0 +111,5 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 +        if fingerprint_file(&path)? != self.disk_fingerprint {
 +            return Err(anyhow!(
 +                "file changed on disk; save a copy or reload before overwriting"
 +            ));
 +        }
-@@ -89,2 +103,2 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -89,2 +118,2 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 -        if !new_file {
 -            fs::copy(&path, bak_file_path)?;
 +        if bak_file_path.exists() {
 +            return Err(anyhow!("existing save backup must be recovered first"));
-@@ -99,8 +113,16 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -99,8 +128,16 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 -        let mut f = fs::OpenOptions::new()
 -            .create(true)
 -            .write(true)
@@ -407,7 +441,7 @@ index d49951f..36bc542 100644
 +            }
 +            f.sync_all()?;
 +            drop(f);
-@@ -108,3 +130,23 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -108,3 +145,23 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 -        self.mod_time = get_mod_time(&path);
 -        if !new_file {
 -            fs::remove_file(bak_file_path)?;
@@ -434,11 +468,11 @@ index d49951f..36bc542 100644
 +        })();
 +        if result.is_err() {
 +            let _ = fs::remove_file(&temp_path);
-@@ -112,2 +154 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+@@ -112,2 +169 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 -
 -        Ok(())
 +        result
-@@ -350,0 +392,71 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
+@@ -350,0 +407,127 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
 +
 +fn fingerprint(bytes: &[u8]) -> u64 {
 +    let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -507,6 +541,62 @@ index d49951f..36bc542 100644
 +        assert!(buffer.save(buffer.rev, false).is_err());
 +        assert_eq!(fs::read_to_string(&path).unwrap(), "original\n");
 +        assert_eq!(fs::read_to_string(&backup).unwrap(), "keep this backup\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn preserves_utf8_bom_crlf_and_unicode_across_save_and_reopen() {
++        let (dir, path) = fixture();
++        let original = b"\xef\xbb\xbflet caf\xc3\xa9 = 1;\r\n";
++        fs::write(&path, original).unwrap();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        assert!(!buffer.read_only);
++        assert_eq!(buffer.rope.to_string(), "\u{feff}let café = 1;\r\n");
++        buffer.rope = Rope::from("\u{feff}let café = 2;\r\n");
++        buffer.save(buffer.rev, false).unwrap();
++        assert_eq!(
++            fs::read(&path).unwrap(),
++            b"\xef\xbb\xbflet caf\xc3\xa9 = 2;\r\n"
++        );
++        assert_eq!(
++            Buffer::new(BufferId::next(), path).rope.to_string(),
++            "\u{feff}let café = 2;\r\n"
++        );
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn preserves_unicode_utf8_lf_without_adding_a_bom() {
++        let (dir, path) = fixture();
++        fs::write(&path, "let π = 1;\n").unwrap();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        assert!(!buffer.read_only);
++        buffer.rope = Rope::from("let π = 2;\n");
++        buffer.save(buffer.rev, false).unwrap();
++        assert_eq!(fs::read(&path).unwrap(), "let π = 2;\n".as_bytes());
++        assert_eq!(
++            Buffer::new(BufferId::next(), path).rope.to_string(),
++            "let π = 2;\n"
++        );
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn rejects_unsupported_encodings_and_binary_without_writing() {
++        let (dir, path) = fixture();
++        for (bytes, reason) in [
++            (b"caf\xe9\n".as_slice(), "UTF-8"),
++            (b"\xff\xfeA\0".as_slice(), "UTF-16"),
++            (b"abc\0def".as_slice(), "NUL"),
++        ] {
++            fs::write(&path, bytes).unwrap();
++            let mut buffer = Buffer::new(BufferId::next(), path.clone());
++            assert!(buffer.read_only);
++            assert!(buffer.rope.to_string().contains(reason));
++            buffer.rope = Rope::from("attempted overwrite");
++            assert!(buffer.save(buffer.rev, false).is_err());
++            assert_eq!(fs::read(&path).unwrap(), bytes);
++        }
 +        fs::remove_dir_all(dir).unwrap();
 +    }
 +}

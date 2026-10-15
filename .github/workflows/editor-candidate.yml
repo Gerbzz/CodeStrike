@@ -40,6 +40,13 @@ jobs:
         run: |
           rustc --version
           cargo --version
+          $localRustAnalyzer = Get-Command rust-analyzer -ErrorAction SilentlyContinue
+          if ($localRustAnalyzer) {
+            "Already-installed rust-analyzer: $($localRustAnalyzer.Source)"
+          } else {
+            'Already-installed rust-analyzer: absent from PATH'
+          }
+          rustup component list --installed | Select-String 'rust-analyzer'
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
           "Runner free space: {0:N2} GiB" -f ($free / 1GB)
           git -C editor/lapce rev-parse HEAD
@@ -85,6 +92,10 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario Search
+      - name: Test UTF-8 encoding and unsupported-file safety
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Encoding
       - name: Test GUI save conflict against an external writer
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'

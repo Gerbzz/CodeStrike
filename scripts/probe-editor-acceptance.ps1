@@ -1,4 +1,4 @@
-param([ValidateSet('Tabs', 'Search', 'Conflict')][string]$Scenario = 'Tabs')
+param([ValidateSet('Tabs', 'Search', 'Conflict', 'Encoding')][string]$Scenario = 'Tabs')
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -148,6 +148,17 @@ function Find-MarkerPath([string[]]$paths, [string]$marker) {
     return @()
 }
 
+function Wait-FileBytes([string]$path, [byte[]]$expected) {
+    $expectedHex = [Convert]::ToHexString($expected)
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        if ([Convert]::ToHexString([System.IO.File]::ReadAllBytes($path)) -ceq $expectedHex) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
 function Edit-Three-Tabs([System.Diagnostics.Process]$process, [string[]]$paths, [string]$prefix) {
     Click-Editor $process
     $changed = @()
@@ -205,7 +216,8 @@ try {
         $other = Join-Path $fixture 'other.rs'
         $needle = 'codestrike_search_needle'
         [System.IO.File]::WriteAllText($path, "let $needle = 1;`nlet copy = $needle;`n")
-        [System.IO.File]::WriteAllText($other, "let other = $needle;`n")
+        $expectedNavigation = "let café = nav_$needle;`n"
+        [System.IO.File]::WriteAllText($other, "let café = $needle;`n")
         $editor = Start-Candidate @($fixture, $path)
         Click-Editor $editor
         [System.Windows.Forms.SendKeys]::SendWait('^+f')
@@ -215,11 +227,17 @@ try {
         Click-WindowOffset $editor 425 430
         Start-Sleep -Seconds 2
         Capture-Candidate 'workspace_hit_click'
-        Click-Editor $editor
-        [System.Windows.Forms.SendKeys]::SendWait('^{END}')
-        [System.Windows.Forms.SendKeys]::SendWait('codestrike_search_navigation')
+        Focus-Candidate $editor
+        [System.Windows.Forms.SendKeys]::SendWait('nav_')
         [System.Windows.Forms.SendKeys]::SendWait('^s')
-        $navigationPassed = @(Find-MarkerPath @($other) 'codestrike_search_navigation').Count -eq 1
+        $navigationPassed = $false
+        for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            if ([System.IO.File]::ReadAllText($other) -ceq $expectedNavigation) {
+                $navigationPassed = $true
+                break
+            }
+            Start-Sleep -Milliseconds 500
+        }
         if (-not $navigationPassed) {
             Capture-Candidate 'navigation_failure'
             Write-Host 'CODESTRIKE_ACCEPTANCE_SEARCH_NAVIGATION=failed'
@@ -256,7 +274,59 @@ try {
         }
         Capture-Candidate 'replace_applied'
         'CODESTRIKE_ACCEPTANCE_PER_FILE_REPLACE=passed'
-        if (-not $navigationPassed) { throw 'Clicking the workspace search hit did not open other.rs for editing.' }
+        if (-not $navigationPassed) { throw 'The workspace search hit did not place the caret at the exact UTF-8 byte column in other.rs.' }
+    } elseif ($Scenario -eq 'Encoding') {
+        $utf8 = [System.Text.UTF8Encoding]::new($false)
+        $supported = @(
+            @{ Name = 'utf8_lf'; Text = "let π = 1;`n"; Preamble = [byte[]]@() },
+            @{ Name = 'bom_crlf'; Text = "let café = 1;`r`n"; Preamble = [byte[]]@(0xef, 0xbb, 0xbf) }
+        )
+        foreach ($case in $supported) {
+            $path = Join-Path $fixture ($case.Name + '.txt')
+            $expected = [byte[]]($case.Preamble + $utf8.GetBytes($case.Text))
+            [System.IO.File]::WriteAllBytes($path, $expected)
+            foreach ($round in 1..2) {
+                $editor = Start-Candidate @($fixture, $path)
+                Click-Editor $editor
+                [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+                $marker = "codestrike_$($case.Name)_$round"
+                [System.Windows.Forms.SendKeys]::SendWait($marker)
+                [System.Windows.Forms.SendKeys]::SendWait('^s')
+                $expected = [byte[]]($expected + [System.Text.Encoding]::ASCII.GetBytes($marker))
+                if (-not (Wait-FileBytes $path $expected)) {
+                    Capture-Candidate "encoding_$($case.Name)_failure"
+                    throw "Saving $($case.Name) round $round changed its original UTF-8/BOM/newline bytes or missed the selected file."
+                }
+                if ($round -eq 2) { Capture-Candidate "encoding_$($case.Name)_reopened" }
+                Close-Candidate $editor
+                $editor = $null
+            }
+            "CODESTRIKE_ACCEPTANCE_ENCODING=$($case.Name);saved-and-reopened"
+        }
+
+        $unsupported = @(
+            @{ Name = 'latin1'; Bytes = [byte[]]@(0x63, 0x61, 0x66, 0xe9, 0x0d, 0x0a) },
+            @{ Name = 'utf16'; Bytes = [byte[]]@(0xff, 0xfe, 0x41, 0x00, 0x0d, 0x00) },
+            @{ Name = 'binary'; Bytes = [byte[]]@(0x61, 0x62, 0x00, 0x63) }
+        )
+        foreach ($case in $unsupported) {
+            $path = Join-Path $fixture ($case.Name + '.txt')
+            [System.IO.File]::WriteAllBytes($path, $case.Bytes)
+            $editor = Start-Candidate @($fixture, $path)
+            Click-Editor $editor
+            [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+            [System.Windows.Forms.SendKeys]::SendWait('codestrike_must_not_write')
+            [System.Windows.Forms.SendKeys]::SendWait('^s')
+            Start-Sleep -Seconds 1
+            if (-not (Wait-FileBytes $path $case.Bytes)) {
+                Capture-Candidate "encoding_$($case.Name)_failure"
+                throw "Unsupported $($case.Name) bytes were overwritten."
+            }
+            if ($case.Name -eq 'utf16') { Capture-Candidate 'encoding_unsupported_read_only' }
+            Close-Candidate $editor
+            $editor = $null
+            "CODESTRIKE_ACCEPTANCE_ENCODING=$($case.Name);bytes-preserved"
+        }
     } elseif ($Scenario -eq 'Conflict') {
         $path = Join-Path $fixture 'conflict.rs'
         [System.IO.File]::WriteAllText($path, "// original`n")
