@@ -89,6 +89,21 @@ function Click-WindowPoint([System.Diagnostics.Process]$process, [double]$relati
     }
     $x = $rect.Left + [int](($rect.Right - $rect.Left) * $relativeX)
     $y = $rect.Top + [int](($rect.Bottom - $rect.Top) * $relativeY)
+    Write-Host "CODESTRIKE_ACCEPTANCE_CLICK=relative:$relativeX,$relativeY;pixel:$x,$y;rect:$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)"
+    [CodeStrikeAcceptanceWindow]::SetCursorPos($x, $y) | Out-Null
+    [CodeStrikeAcceptanceWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+    [CodeStrikeAcceptanceWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Click-WindowOffset([System.Diagnostics.Process]$process, [int]$offsetX, [int]$offsetY) {
+    Focus-Candidate $process
+    $rect = [CodeStrikeAcceptanceWindow+Rect]::new()
+    if (-not [CodeStrikeAcceptanceWindow]::GetWindowRect($process.MainWindowHandle, [ref]$rect)) {
+        throw 'Could not locate editor window for a search hit.'
+    }
+    $x = $rect.Left + $offsetX
+    $y = $rect.Top + $offsetY
+    Write-Host "CODESTRIKE_ACCEPTANCE_CLICK=offset:$offsetX,$offsetY;pixel:$x,$y;rect:$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)"
     [CodeStrikeAcceptanceWindow]::SetCursorPos($x, $y) | Out-Null
     [CodeStrikeAcceptanceWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
     [CodeStrikeAcceptanceWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
@@ -195,17 +210,25 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 3
         Capture-Candidate 'workspace_search'
-        Click-WindowPoint $editor 0.54 0.70
-        Start-Sleep -Seconds 1
+        Click-WindowOffset $editor 425 405
+        Start-Sleep -Seconds 2
+        Capture-Candidate 'workspace_hit_click'
+        Click-Editor $editor
         [System.Windows.Forms.SendKeys]::SendWait('^{END}')
         [System.Windows.Forms.SendKeys]::SendWait('codestrike_search_navigation')
         [System.Windows.Forms.SendKeys]::SendWait('^s')
-        if (@(Find-MarkerPath @($other) 'codestrike_search_navigation').Count -ne 1) {
+        $navigationPassed = @(Find-MarkerPath @($other) 'codestrike_search_navigation').Count -eq 1
+        if (-not $navigationPassed) {
             Capture-Candidate 'navigation_failure'
-            throw 'Clicking the workspace search hit did not open other.rs for editing.'
+            Write-Host 'CODESTRIKE_ACCEPTANCE_SEARCH_NAVIGATION=failed'
+        } else {
+            Capture-Candidate 'workspace_hit_opened'
+            Write-Host 'CODESTRIKE_ACCEPTANCE_SEARCH_NAVIGATION=passed'
         }
-        Capture-Candidate 'workspace_hit_opened'
-        Click-WindowPoint $editor 0.47 0.08
+        Close-Candidate $editor
+        $editor = $null
+
+        $editor = Start-Candidate @($fixture, $path)
         Click-Editor $editor
         [System.Windows.Forms.SendKeys]::SendWait('^f')
         [System.Windows.Forms.SendKeys]::SendWait($needle)
@@ -228,7 +251,8 @@ try {
             throw 'Per-file Replace All did not change exactly two matches in main.rs while leaving other.rs intact.'
         }
         Capture-Candidate 'replace_applied'
-        'CODESTRIKE_ACCEPTANCE_SEARCH_NAVIGATION_AND_REPLACE=passed'
+        'CODESTRIKE_ACCEPTANCE_PER_FILE_REPLACE=passed'
+        if (-not $navigationPassed) { throw 'Clicking the workspace search hit did not open other.rs for editing.' }
     } elseif ($Scenario -eq 'Conflict') {
         $path = Join-Path $fixture 'conflict.rs'
         [System.IO.File]::WriteAllText($path, "// original`n")
