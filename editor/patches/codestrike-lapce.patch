@@ -284,7 +284,7 @@ index 35e79f56..e74885c7 100644
 +                text.offset_of_line_col(*line, *byte_col)
 +            }
 diff --git a/lapce-app/src/global_search.rs b/lapce-app/src/global_search.rs
-index 557bf284..10298055 100644
+index 557bf284..0d5b2c8c 100644
 --- a/lapce-app/src/global_search.rs
 +++ b/lapce-app/src/global_search.rs
 @@ -1 +1 @@
@@ -296,29 +296,46 @@ index 557bf284..10298055 100644
 +};
 @@ -43,0 +47 @@ pub struct GlobalSearchData {
 +    pub replace_editor: EditorData,
-@@ -44,0 +49,6 @@ pub struct GlobalSearchData {
+@@ -44,0 +49,7 @@ pub struct GlobalSearchData {
 +    pub replace_preview: RwSignal<Option<Arc<ReplacePreview>>>,
 +    pub replace_status: RwSignal<String>,
 +    pub replace_expanded: RwSignal<bool>,
++    pub replace_focus: RwSignal<bool>,
 +    pub applied_replace: RwSignal<Option<(PathBuf, Vec<AppliedFile>)>>,
 +    preview_generation: RwSignal<u64>,
 +    refresh_generation: RwSignal<u64>,
-@@ -110,0 +121 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
+@@ -71 +82,6 @@ fn run_command(
+-                return self.editor.run_command(command, count, mods);
++                let editor = if self.replace_focus.get_untracked() {
++                    &self.replace_editor
++                } else {
++                    &self.editor
++                };
++                return editor.run_command(command, count, mods);
+@@ -79 +95,5 @@ fn receive_char(&self, c: &str) {
+-        self.editor.receive_char(c);
++        if self.replace_focus.get_untracked() {
++            self.replace_editor.receive_char(c);
++        } else {
++            self.editor.receive_char(c);
++        }
+@@ -110,0 +131 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
 +        let replace_editor = main_split.editors.make_local(cx, common.clone());
-@@ -114,0 +126 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
+@@ -114,0 +136 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
 +            replace_editor,
-@@ -115,0 +128,8 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
+@@ -115,0 +138,9 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
 +            replace_preview: cx.create_rw_signal(None),
 +            replace_status: cx.create_rw_signal(
 +                "Enter replacement text, then Preview changes.".to_string(),
 +            ),
 +            replace_expanded: cx.create_rw_signal(false),
++            replace_focus: cx.create_rw_signal(false),
 +            applied_replace: cx.create_rw_signal(None),
 +            preview_generation: cx.create_rw_signal(0),
 +            refresh_generation: cx.create_rw_signal(0),
-@@ -123,0 +144 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
+@@ -123,0 +155 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
 +                global_search.refresh_generation.get();
-@@ -153,0 +175,17 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
+@@ -153,0 +186,17 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
 +        {
 +            let global_search = global_search.clone();
 +            let search_buffer = global_search.editor.doc().buffer;
@@ -336,8 +353,9 @@ index 557bf284..10298055 100644
 +            });
 +        }
 +
-@@ -165,0 +204,174 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
+@@ -165,0 +215,182 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
 +    pub fn preview_workspace_replace(&self) {
++        tracing::info!("CodeStrike workspace replace preview requested");
 +        let workspace = &self.common.workspace;
 +        if !workspace.kind.is_local() {
 +            self.replace_status.set(
@@ -366,6 +384,11 @@ index 557bf284..10298055 100644
 +            whole_word: self.common.find.whole_words.get_untracked(),
 +            is_regex: self.common.find.is_regex.get_untracked(),
 +        };
++        tracing::info!(
++            search_bytes = query.pattern.len(),
++            replacement_bytes = query.replacement.len(),
++            "CodeStrike workspace replace preview inputs"
++        );
 +        self.replace_preview.set(None);
 +        self.replace_status
 +            .set("Scanning local workspace...".into());
@@ -414,6 +437,7 @@ index 557bf284..10298055 100644
 +    }
 +
 +    pub fn apply_workspace_replace(&self) {
++        tracing::info!("CodeStrike workspace replace apply requested");
 +        if self.applied_replace.get_untracked().is_some() {
 +            self.replace_status.set(
 +                "Undo the previous workspace replacement before applying another."
@@ -464,6 +488,7 @@ index 557bf284..10298055 100644
 +    }
 +
 +    pub fn undo_workspace_replace(&self) {
++        tracing::info!("CodeStrike workspace replace undo requested");
 +        let Some((root, files)) = self.applied_replace.get_untracked() else {
 +            self.replace_status
 +                .set("No replacement to undo in this session.".into());
@@ -522,7 +547,7 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd4..90fb0786 100644
+index 0cc1edd4..d7b8094d 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
 @@ -8 +8,3 @@
@@ -530,14 +555,22 @@ index 0cc1edd4..90fb0786 100644
 +    views::{
 +        Decorators, container, dyn_stack, label, scroll, stack, svg, virtual_stack,
 +    },
-@@ -37,0 +40 @@ pub fn global_search_panel(
+@@ -37,0 +40,2 @@ pub fn global_search_panel(
 +    let replace_expanded = global_search.replace_expanded;
-@@ -104 +107,3 @@ pub fn global_search_panel(
++    let replace_focus = global_search.replace_focus;
+@@ -40 +44,3 @@ pub fn global_search_panel(
+-    let is_focused = move || focus.get() == Focus::Panel(PanelKind::Search);
++    let is_focused = move || {
++        focus.get() == Focus::Panel(PanelKind::Search) && !replace_focus.get()
++    };
+@@ -91,0 +98 @@ pub fn global_search_panel(
++                replace_focus.set(false);
+@@ -104 +111,3 @@ pub fn global_search_panel(
 -        search_result(workspace, global_search, internal_command, config),
 +        workspace_replace_controls(global_search.clone(), config),
 +        search_result(workspace, global_search, internal_command, config)
 +            .style(move |s| s.apply_if(replace_expanded.get(), |s| s.hide())),
-@@ -109,0 +115,134 @@ pub fn global_search_panel(
+@@ -109,0 +119,140 @@ pub fn global_search_panel(
 +fn workspace_replace_controls(
 +    global_search: GlobalSearchData,
 +    config: ReadSignal<Arc<LapceConfig>>,
@@ -546,6 +579,7 @@ index 0cc1edd4..90fb0786 100644
 +    let status = global_search.replace_status;
 +    let preview = global_search.replace_preview;
 +    let expanded = global_search.replace_expanded;
++    let replace_focus = global_search.replace_focus;
 +    let replace_editor = global_search.replace_editor.clone();
 +    let preview_action = global_search.clone();
 +    let apply_action = global_search.clone();
@@ -566,8 +600,13 @@ index 0cc1edd4..90fb0786 100644
 +                label(|| "Replace across workspace".to_string())
 +                    .style(|s| s.font_bold()),
 +                TextInputBuilder::new()
++                    .is_focused(move || {
++                        focus.get() == Focus::Panel(PanelKind::Search)
++                            && replace_focus.get()
++                    })
 +                    .build_editor(replace_editor)
 +                    .on_event_cont(EventListener::PointerDown, move |_| {
++                        replace_focus.set(true);
 +                        focus.set(Focus::Panel(PanelKind::Search));
 +                    })
 +                    .style(move |s| {
@@ -672,12 +711,12 @@ index 0cc1edd4..90fb0786 100644
 +    .style(|s| s.width_pct(100.0).flex_col().z_index(2))
 +}
 +
-@@ -280 +419 @@ fn search_result(
+@@ -280 +429 @@ fn search_result(
 -                                                        EditorPosition::Line(
 +                                                        EditorPosition::LineCol(
-@@ -282,0 +422 @@ fn search_result(
+@@ -282,0 +432 @@ fn search_result(
 +                                                            start,
-@@ -308 +448 @@ fn search_result(
+@@ -308 +458 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
 +    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
