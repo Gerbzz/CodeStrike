@@ -53,3 +53,13 @@ All fixtures were created under the hosted runner's temporary directory by
 or [`scripts/probe-editor-acceptance.ps1`](../../../scripts/probe-editor-acceptance.ps1).
 The captures do not establish workspace-wide replacement, selected match-range
 highlighting, local language tooling, or clean-machine installation.
+
+The [workspace replacement focus failure](workspace-replace-focus-failure.jpg)
+is an unedited `workspace_replace_ready` capture from
+[run 38752808636](https://github.com/Gerbzz/CodeStrike/actions/runs/38752808636),
+job `116483308591`, commit `4ded974155c1e90f52b3faa7d6749eadb8d8f3f0`.
+SHA-256: `7ee212042b2aa3b53facd67347fb13d22a68137e4ba57de0bcdbeb33e51abcb0`.
+The replacement string is visibly appended to the workspace search query,
+while the replacement input is empty. The same run passed eight save and four
+replacement engine tests, then failed the GUI byte assertion at Apply. This
+capture retains the failure that motivated the control and focus repair.
