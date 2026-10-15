@@ -118,6 +118,13 @@ end-to-end product test.
   `notes.txt`. The debug executable was 103.32 MiB in that run, with 27.49
   GiB free on the hosted runner after build. Neither screenshot establishes
   editing, search, language tooling, or an installed footprint. A keyboard
-  file edit/save probe is now being added.
+  file edit/save probe was added in the
+  [next run](https://github.com/Gerbzz/CodeStrike/actions/runs/38720659614):
+  `main.rs` opened as a visible tab, received a keyboard edit, and Ctrl+S
+  wrote the expected marker to disk. Its CLI smoke, three save tests, and
+  startup/folder/file GUI captures passed. The debug executable measured
+  110.94 MiB in this run with 30.73 GiB free afterward; debug size varied
+  across hosted runs. Reopen in the GUI, editing edge cases, search/replace,
+  local LSP, and a clean-machine package remain acceptance gates.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.

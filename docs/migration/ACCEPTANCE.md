@@ -57,5 +57,10 @@ passed compilation, CLI smoke, both GUI captures, and all three save tests.
 The startup capture shows the approved logo, CodeStrike name, and Open folder/
 Open file buttons. The folder capture shows the real fixture tree with
 `main.rs` and `notes.txt`; it does not yet prove file editing or reopening.
-The next probe opens `main.rs` directly and sends a keyboard edit/save, with a
-disk-content assertion. Do not advertise pending rows.
+The [following run](https://github.com/Gerbzz/CodeStrike/actions/runs/38720659614)
+also passed a real Windows GUI edit/save probe. It opened `main.rs` as a tab,
+sent a keyboard edit and Ctrl+S, captured the edited content in the window,
+and asserted the marker appeared on disk. All three proxy save tests passed
+again. This establishes one normal UTF-8 file edit/save path, not the full
+file/session, encoding, search, or language-tooling rows. Do not advertise
+pending rows.
