@@ -547,7 +547,7 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd4..d7b8094d 100644
+index 0cc1edd4..255d5155 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
 @@ -8 +8,3 @@
@@ -570,7 +570,7 @@ index 0cc1edd4..d7b8094d 100644
 +        workspace_replace_controls(global_search.clone(), config),
 +        search_result(workspace, global_search, internal_command, config)
 +            .style(move |s| s.apply_if(replace_expanded.get(), |s| s.hide())),
-@@ -109,0 +119,140 @@ pub fn global_search_panel(
+@@ -109,0 +119,142 @@ pub fn global_search_panel(
 +fn workspace_replace_controls(
 +    global_search: GlobalSearchData,
 +    config: ReadSignal<Arc<LapceConfig>>,
@@ -584,6 +584,23 @@ index 0cc1edd4..d7b8094d 100644
 +    let preview_action = global_search.clone();
 +    let apply_action = global_search.clone();
 +    let undo_action = global_search.clone();
++    let replacement_input = TextInputBuilder::new()
++        .is_focused(move || {
++            focus.get() == Focus::Panel(PanelKind::Search) && replace_focus.get()
++        })
++        .build_editor(replace_editor)
++        .on_event_cont(EventListener::PointerDown, move |_| {
++            replace_focus.set(true);
++            focus.set(Focus::Panel(PanelKind::Search));
++        })
++        .style(move |s| {
++            s.width_pct(100.0)
++                .padding(5.0)
++                .border(1.0)
++                .border_radius(6.0)
++                .border_color(config.get().color(LapceColor::LAPCE_BORDER))
++        });
++    let replacement_input_id = replacement_input.id();
 +
 +    stack((
 +        label(move || {
@@ -593,115 +610,100 @@ index 0cc1edd4..d7b8094d 100644
 +                "Workspace replace (closed)".to_string()
 +            }
 +        })
-+        .on_click_stop(move |_| expanded.update(|open| *open = !*open))
++        .on_click_stop(move |_| {
++            expanded.update(|open| *open = !*open);
++            if expanded.get_untracked() {
++                replace_focus.set(true);
++                focus.set(Focus::Panel(PanelKind::Search));
++                replacement_input_id.request_focus();
++            }
++        })
 +        .style(|s| s.padding(8.0).hover(|s| s.cursor(CursorStyle::Pointer))),
-+        scroll(
++        stack((
++            label(|| "Replace across workspace".to_string())
++                .style(|s| s.font_bold()),
++            replacement_input,
 +            stack((
-+                label(|| "Replace across workspace".to_string())
-+                    .style(|s| s.font_bold()),
-+                TextInputBuilder::new()
-+                    .is_focused(move || {
-+                        focus.get() == Focus::Panel(PanelKind::Search)
-+                            && replace_focus.get()
-+                    })
-+                    .build_editor(replace_editor)
-+                    .on_event_cont(EventListener::PointerDown, move |_| {
-+                        replace_focus.set(true);
-+                        focus.set(Focus::Panel(PanelKind::Search));
++                label(|| "Preview changes".to_string())
++                    .on_click_stop(move |_| {
++                        preview_action.preview_workspace_replace()
 +                    })
 +                    .style(move |s| {
-+                        s.width_pct(100.0)
-+                            .padding(5.0)
++                        s.padding(6.0)
 +                            .border(1.0)
-+                            .border_radius(6.0)
 +                            .border_color(
 +                                config.get().color(LapceColor::LAPCE_BORDER),
 +                            )
++                            .hover(|s| s.cursor(CursorStyle::Pointer))
 +                    }),
-+                stack((
-+                    label(|| "Preview changes".to_string())
-+                        .on_click_stop(move |_| {
-+                            preview_action.preview_workspace_replace()
-+                        })
-+                        .style(move |s| {
-+                            s.padding(6.0)
-+                                .border(1.0)
-+                                .border_color(
-+                                    config.get().color(LapceColor::LAPCE_BORDER),
-+                                )
-+                                .hover(|s| s.cursor(CursorStyle::Pointer))
-+                        }),
-+                    label(|| "Apply preview".to_string())
-+                        .on_click_stop(move |_| {
-+                            apply_action.apply_workspace_replace()
-+                        })
-+                        .style(move |s| {
-+                            s.padding(6.0)
-+                                .border(1.0)
-+                                .border_color(
-+                                    config.get().color(LapceColor::LAPCE_BORDER),
-+                                )
-+                                .hover(|s| s.cursor(CursorStyle::Pointer))
-+                        }),
-+                    label(|| "Checked Undo".to_string())
-+                        .on_click_stop(move |_| undo_action.undo_workspace_replace())
-+                        .style(move |s| {
-+                            s.padding(6.0)
-+                                .border(1.0)
-+                                .border_color(
-+                                    config.get().color(LapceColor::LAPCE_BORDER),
-+                                )
-+                                .hover(|s| s.cursor(CursorStyle::Pointer))
-+                        }),
-+                ))
-+                .style(|s| s.items_center()),
-+                label(move || status.get()).style(move |s| {
-+                    s.color(config.get().color(LapceColor::EDITOR_DIM))
-+                        .min_width(0.0)
-+                }),
-+                scroll(
-+                    dyn_stack(
-+                        move || {
-+                            let Some(plan) = preview.get() else {
-+                                return Vec::new();
-+                            };
-+                            let mut rows = Vec::new();
-+                            for file in &plan.files {
-+                                let relative = file
-+                                    .path
-+                                    .strip_prefix(&plan.root)
-+                                    .unwrap_or(&file.path);
-+                                rows.push(format!(
-+                                    "{} ({} matches)",
-+                                    relative.display(),
-+                                    file.matches.len()
-+                                ));
-+                                for found in &file.matches {
-+                                    rows.push(format!(
-+                                        "  {}:{}  {:?} => {:?}  | {}",
-+                                        found.line,
-+                                        found.column + 1,
-+                                        found.found,
-+                                        found.replacement,
-+                                        found.context,
-+                                    ));
-+                                }
-+                            }
-+                            rows.into_iter().enumerate().collect::<Vec<_>>()
-+                        },
-+                        |(index, _)| *index,
-+                        move |(_, row)| {
-+                            label(move || row.clone()).style(|s| {
-+                                s.min_width(0.0).text_ellipsis().padding_vert(2.0)
-+                            })
-+                        },
-+                    )
-+                    .style(|s| s.flex_col()),
-+                )
-+                .style(|s| s.height(90.0).width_pct(100.0)),
++                label(|| "Apply preview".to_string())
++                    .on_click_stop(move |_| apply_action.apply_workspace_replace())
++                    .style(move |s| {
++                        s.padding(6.0)
++                            .border(1.0)
++                            .border_color(
++                                config.get().color(LapceColor::LAPCE_BORDER),
++                            )
++                            .hover(|s| s.cursor(CursorStyle::Pointer))
++                    }),
++                label(|| "Checked Undo".to_string())
++                    .on_click_stop(move |_| undo_action.undo_workspace_replace())
++                    .style(move |s| {
++                        s.padding(6.0)
++                            .border(1.0)
++                            .border_color(
++                                config.get().color(LapceColor::LAPCE_BORDER),
++                            )
++                            .hover(|s| s.cursor(CursorStyle::Pointer))
++                    }),
 +            ))
-+            .style(|s| s.width_pct(100.0).padding(10.0).flex_col()),
-+        )
++            .style(|s| s.items_center()),
++            label(move || status.get()).style(move |s| {
++                s.color(config.get().color(LapceColor::EDITOR_DIM))
++                    .min_width(0.0)
++            }),
++            scroll(
++                dyn_stack(
++                    move || {
++                        let Some(plan) = preview.get() else {
++                            return Vec::new();
++                        };
++                        let mut rows = Vec::new();
++                        for file in &plan.files {
++                            let relative = file
++                                .path
++                                .strip_prefix(&plan.root)
++                                .unwrap_or(&file.path);
++                            rows.push(format!(
++                                "{} ({} matches)",
++                                relative.display(),
++                                file.matches.len()
++                            ));
++                            for found in &file.matches {
++                                rows.push(format!(
++                                    "  {}:{}  {:?} => {:?}  | {}",
++                                    found.line,
++                                    found.column + 1,
++                                    found.found,
++                                    found.replacement,
++                                    found.context,
++                                ));
++                            }
++                        }
++                        rows.into_iter().enumerate().collect::<Vec<_>>()
++                    },
++                    |(index, _)| *index,
++                    move |(_, row)| {
++                        label(move || row.clone()).style(|s| {
++                            s.min_width(0.0).text_ellipsis().padding_vert(2.0)
++                        })
++                    },
++                )
++                .style(|s| s.flex_col()),
++            )
++            .style(|s| s.height(90.0).width_pct(100.0)),
++        ))
++        .style(|s| s.width_pct(100.0).padding(10.0).flex_col())
 +        .style(move |s| {
 +            s.width_pct(100.0)
 +                .height(200.0)
@@ -711,12 +713,12 @@ index 0cc1edd4..d7b8094d 100644
 +    .style(|s| s.width_pct(100.0).flex_col().z_index(2))
 +}
 +
-@@ -280 +429 @@ fn search_result(
+@@ -280 +431 @@ fn search_result(
 -                                                        EditorPosition::Line(
 +                                                        EditorPosition::LineCol(
-@@ -282,0 +432 @@ fn search_result(
+@@ -282,0 +434 @@ fn search_result(
 +                                                            start,
-@@ -308 +458 @@ fn search_result(
+@@ -308 +460 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
 +    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs

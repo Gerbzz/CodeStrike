@@ -304,7 +304,9 @@ try {
         Click-WindowOffset $editor 360 330
         Start-Sleep -Seconds 1
         Capture-Candidate 'workspace_replace_open'
-        Click-WindowOffset $editor 430 368
+        # Opening the disclosure requests native focus for Replace. The
+        # subsequent exact-byte Apply assertion also proves that this input,
+        # rather than the search query, received the replacement string.
         [System.Windows.Forms.SendKeys]::SendWait($replacement)
         Capture-Candidate 'workspace_replace_ready'
         Click-WindowOffset $editor 330 400

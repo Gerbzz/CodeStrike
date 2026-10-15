@@ -25,8 +25,11 @@ the opened bytes, refuses conflicting saves and pre-existing backups, and
 writes through a temporary file; save failures now open a visible alert.
 Six focused Windows save tests now pass. The tested GUI conflict and encoding
 paths are recorded below; recovery and broader save behavior remain pending.
-Per-file replace exists, but a reviewable workspace-wide replacement was not established from
-the inspected source. Keep that capability out of claims until implemented.
+Per-file replace and a checked workspace replacement candidate now exist in
+the draft patch. The proxy engine has focused Windows tests; the complete
+native GUI preview/apply/undo path is still under verification. See
+[workspace replacement design](WORKSPACE_REPLACE.md) for bounds and recovery
+limits.
 
 Baseline checks completed on 2026-10-15: CodeStrike desktop inspection,
 Lapce/Zed/Helix source/licensing/platform review, pinned submodule/approved-logo
