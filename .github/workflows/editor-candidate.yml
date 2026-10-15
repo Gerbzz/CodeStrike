@@ -26,6 +26,9 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
     steps:
+      - name: Preserve upstream LF source for the pinned patch
+        shell: pwsh
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           submodules: true
