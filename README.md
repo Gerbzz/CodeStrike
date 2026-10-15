@@ -1,74 +1,110 @@
 <p align="center">
-  <img src="assets/branding/CodeStrike.png" alt="Original CodeStrike octopus logo" width="160" height="160">
+  <img src="assets/branding/CodeStrike.png" alt="Original CodeStrike octopus mark" width="144" height="144">
 </p>
 
 <h1 align="center">CodeStrike</h1>
 
+<p align="center"><strong>Stay close to your code.</strong><br>A local source editor for real folders, careful saves, and deliberate Rust workflows.</p>
+
 <p align="center">
   <a href="https://prowebdevsolutions.com"><picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/branding/PWDS-logo-orange.svg">
-    <img src="assets/branding/PWDS-logo.png" alt="PWDS company logo" width="120">
+    <img src="assets/branding/PWDS-logo.png" alt="PWDS company mark" width="116">
   </picture></a>
 </p>
 
-<p align="center"><strong>Stay close to your code.</strong></p>
+> **Windows engineering preview · source build only.** The application on `main` is a working but limited native Rust editor. A more capable Lapce-based editor is being developed in an [unmerged draft PR](https://github.com/Gerbzz/CodeStrike/pull/1). Screenshots in the **Draft editor** section show that separate candidate, not the app built from `main`. There is no CodeStrike installer or release yet.
 
-CodeStrike brings a folder, its source files, and local Rust checks into one editor. Open a UTF-8 file, make a change, search the workspace, and run Cargo Check, Build, or Test when you choose.
+<p align="center"><a href="#the-editor-on-main">On main</a> · <a href="#draft-editor">Draft editor</a> · <a href="#build-and-run">Build and run</a> · <a href="#status-and-roadmap">Status</a> · <a href="#source-and-attribution">Attribution</a></p>
 
-![CodeStrike desktop editor showing an original Rust sample workspace](assets/screenshots/codestrike-editor.png)
+![The CodeStrike main-branch Windows editor with a self-authored Rust sample workspace](assets/screenshots/codestrike-editor.png)
 
-*The retained Windows desktop editor rendering a self-authored, three-file Rust sample. Build, Check, and Test are visible controls; none were run for this capture.*
+*The current `main` application displaying a local Rust project. This retained, app-rendered capture does not claim that the visible Cargo controls were run; see [provenance](docs/SCREENSHOT_PROVENANCE.md).*
 
-<p align="center"><a href="#highlights">Highlights</a> · <a href="#build-and-use">Build and use</a> · <a href="assets/branding">Original artwork</a></p>
+## The editor on main
 
-## Highlights
+### Work in your own folders
 
-- Edit and save local source with recovery safeguards.
-- Search files in a selected workspace.
-- Read diagnostics and output from explicit Cargo commands.
+Open a local folder, browse its files, and edit a UTF-8 source file. The interface shows the selected workspace, active file, dirty state, search results, and command output. The command-line companion can inspect status, insert text, search a workspace, and request explicit local Cargo checks.
 
-## Current status
+### Save with a way back
 
-Windows engineering preview. The native editor is limited to one active file and does not yet have syntax coloring, a debugger, or an accessibility pass. Cargo checks may execute build scripts from the selected project; review that project before running them.
+CodeStrike checks the file on disk before saving, preserves a UTF-8 BOM and a consistent newline style, and writes a recovery snapshot after edits. Undo and Redo operate on the source model. Unsupported input, including invalid UTF-8, NUL-containing files, mixed newlines, and files over 20 MiB, opens read-only rather than being silently rewritten.
 
-[Screenshot provenance](docs/SCREENSHOT_PROVENANCE.md) records the retained binary, matched source, self-authored sample, and capture limits.
+### Search, then choose what runs
 
-## A guarded editing path
+Search the selected workspace with literal or regex patterns; a result opens its file. **Check**, **Build**, and **Test** show the local Cargo command and working directory and run only when pressed. Cargo is invoked offline without shell interpolation. A chosen project's build scripts and procedural macros can still execute, as with a normal Cargo build.
 
-The editor shows the chosen workspace, active file, dirty state, search results, diagnostics, and command output. It preserves a file's BOM and consistent newline style, checks for outside changes before saving, and writes a recovery snapshot after edits. Cargo commands run only when explicitly selected; they may execute that workspace's build scripts and procedural macros.
+This main-branch preview has **one active file**, no syntax coloring or line-number gutter, no result-to-caret navigation or replacement preview, and no verified language server, debugger, or accessibility pass. Its process controls are tested on Windows; non-Windows process execution currently refuses to start.
 
-## Build and use
+## Draft editor
 
-Launch on Windows from this directory:
+The [Lapce-based CodeStrike draft](https://github.com/Gerbzz/CodeStrike/pull/1) keeps the original repository, settings, and artwork while developing the fuller editor workflow. It is **not merged into `main`**. The screenshots below are unedited captures of its Windows CI run on code commit [`9a77ed67`](https://github.com/Gerbzz/CodeStrike/commit/9a77ed67b69f0c8b0d483d9980a80379f7a62edb); [evidence-only commit `bee871d`](https://github.com/Gerbzz/CodeStrike/commit/bee871db3ac79f2f6e54f062f0da0266884a6526) published the captures and test notes.
+
+### Real tabs and a restorable session
+
+Three distinct source files were edited and saved, the app closed, and the same tabs reopened for further edits in the [Windows acceptance run](https://github.com/Gerbzz/CodeStrike/actions/runs/38757901744). Workspace search opened a clicked hit at its UTF-8 byte column. Per-file Replace All and save-conflict protection were also exercised.
+
+![Unedited Windows CI capture of three tabs in the unmerged CodeStrike candidate](assets/screenshots/codestrike-candidate-tabs.jpg)
+
+*Unmerged candidate, not the application on `main`. The surrounding terminal and desktop are part of the original CI capture.*
+
+### Preview a workspace change before writing
+
+The draft editor has a bounded multi-file replacement flow: preview paths, positions, context, and replacement text; confirm Apply; use Checked Undo while the session is open. The Windows GUI probe previewed two files without changing them, refused an Apply after an external edit, applied two replacements while preserving UTF-8 BOM/CRLF and LF bytes, refused Undo over a newer edit, and then restored the originals exactly. Ignored, read-only, and unsupported files were not changed.
+
+![Unedited Windows CI capture of the two-file workspace replacement preview in the unmerged candidate](assets/screenshots/codestrike-candidate-replace-preview.jpg)
+
+*Unmerged candidate, not `main`. [The checked Undo capture](assets/screenshots/codestrike-candidate-undo.jpg) and [full evidence with hashes](docs/CANDIDATE_SCREENSHOTS.md) show the rest of this bounded test.*
+
+The draft still needs crash-interruption and cross-session recovery tests, automatic cleanup of visible backups, broader search/replace cases, local language-tool verification, accessibility review, and clean-machine installation. It is not yet a distribution.
+
+## Build and run
+
+### Current `main` Windows preview
+
+Install a Rust toolchain with Cargo, then from PowerShell:
 
 ```powershell
-$env:CARGO_BUILD_JOBS='1'
-$env:CARGO_TARGET_DIR='..\target-codestrike'
+git clone https://github.com/Gerbzz/CodeStrike.git
+cd CodeStrike
+$env:CARGO_BUILD_JOBS = '1'
 cargo test --locked --features desktop
 cargo run --locked --features desktop --bin codestrike-desktop
 ```
 
-A fresh checkout needs registry access for its first dependency download. After the registry cache is populated, add `--offline` if an offline build is needed.
+Use **Open folder** and select a source file in Explorer, or choose **Open file**. Ctrl+S saves after the disk-version check. The first build needs dependency registry access; after dependencies are cached, Cargo's `--offline` flag is available. No prebuilt installer is published.
 
-Choose **Open folder**, then select a file in Explorer or use **Open file**. Edit directly; a recovery snapshot is written after changes, and Ctrl+S or **Save** updates the source after checking its disk version. **Undo/Redo** uses the source model; a found search result opens its file. Check/Build/Test display the exact local Cargo argv and workspace cwd and run only when pressed. Cargo may execute the selected workspace's build scripts and procedural macros. `--workspace PATH --file PATH --capture FILE.png` is an app-rendered QA capture path.
+For the source CLI, run `cargo run --locked --bin codestrike -- --help`. Commands include `status`, `insert`, `find`, `replace`, `regex`, `recover`, `check`, `build`, and `test`. Workspace search scans at most 100 MiB and returns at most 500 hits. Cargo output has a ten-minute timeout and a 4 MiB cap per stream.
 
-Command line source workflow:
+### Unmerged candidate from source
 
-```text
-cargo run --locked --bin codestrike -- status path/to/main.rs
-cargo run --locked --bin codestrike -- insert path/to/main.rs 0 "// note"
-cargo run --locked --bin codestrike -- find path/to/workspace symbol
-cargo run --locked --bin codestrike -- check path/to/cargo-workspace
+The draft has its own pinned Lapce submodule and patch. On Windows, start with a fresh checkout and enough disk space for a Rust GUI build:
+
+```powershell
+git -c core.autocrlf=false clone --branch draft/lapce-foundation-migration --recurse-submodules https://github.com/Gerbzz/CodeStrike.git CodeStrike-candidate
+cd CodeStrike-candidate
+pwsh -File .\scripts\prepare-lapce.ps1
+cargo build --manifest-path .\editor\lapce\Cargo.toml --locked --bin lapce
+Copy-Item .\editor\lapce\target\debug\lapce.exe .\editor\lapce\target\debug\CodeStrike.exe
+.\editor\lapce\target\debug\CodeStrike.exe --wait
 ```
 
-`replace`, `regex`, `recover`, `build`, and `test` are also available. Indexes and search columns count Unicode scalar values. Invalid UTF-8, binary/NUL, mixed newline, and files over 20 MiB open read-only. Search examines at most 100 MiB and returns at most 500 hits. Cargo uses `--offline` and no shell interpolation; checking a selected project may still execute that project's build scripts or proc macros, as normal Cargo does.
+This follows the [tested Windows workflow](https://github.com/Gerbzz/CodeStrike/blob/draft/lapce-foundation-migration/.github/workflows/editor-candidate.yml); it is a developer build, not an installer. The tested debug executable was 111.41 MiB, but release and installed footprints have not been measured. If a checkout converts the pinned upstream source to CRLF, the patch preparation will refuse it; use a fresh LF checkout rather than applying the patch to modified files.
 
-Current limits: one active file, no syntax colors or line-number gutter, result-to-caret navigation, replace preview, rust-analyzer, debug adapter, or accessibility pass. Cargo runs off the UI thread with a Cancel control, ten-minute timeout, and 4 MiB capture cap per output stream. Windows runs the command in its own kill-on-close Job Object; a controlled fake Cargo child and a real Cargo build-script child were both stopped on cancellation. Non-Windows process execution currently refuses to start until equivalent lifecycle cleanup is tested. Source and recovery writes use exclusive transaction files and refuse changed recovery/source content; existing sidecars are preserved. Search bounds and file refusal remain as described above. The pinned VectorCraft UI donor's palette/dock code depends on its illustration engine and egui 0.36; no code from that UI has been copied. Windows is the only tested platform. Planning history and QA captures are not included in this standalone source checkout.
+## Status and roadmap
 
-## Source terms
+| Area | `main` preview | Unmerged draft |
+| --- | --- | --- |
+| Local folders and files | Open, edit, guarded save; one active file | Three-tab save and reopen path verified on Windows |
+| Search and replacement | Workspace search and per-file commands | Exact hit caret, per-file Replace All, bounded two-file preview/Apply/Undo verified |
+| Language tooling | Explicit offline Cargo Check/Build/Test | LSP route exists; completion and diagnostics remain unverified |
+| Distribution | Source build on Windows | Source build and CI only; no installer or release |
 
-No first-party license grant is stated for this app in this checkout. `THIRD_PARTY.md` records attribution for identified upstream material; the included donor license files, where present, apply to that material.
+The [draft acceptance matrix](https://github.com/Gerbzz/CodeStrike/blob/draft/lapce-foundation-migration/docs/migration/ACCEPTANCE.md) records the tested cases and open gates. CodeStrike is still an engineering preview, not a VS Code replacement ready for everyday professional work.
 
-## PWDS brand artwork
+## Source and attribution
 
-The company mark in this masthead is the existing [official PWDS logo](https://github.com/Gerbzz/PWDS-Website/blob/main/public/prowebdevsolutions-logo.png), with the [official orange display asset](https://prowebdevsolutions.com/images/prowebdevsolutions-logo-orange.svg) for dark backgrounds. Any app logo above it remains the original Strike suite artwork.
+The original CodeStrike and PWDS artwork above is retained. [Brand provenance](assets/branding/provenance.json) and [main-branch screenshot provenance](docs/SCREENSHOT_PROVENANCE.md) identify those assets. The draft editor is based on pinned [Lapce v0.4.6](https://github.com/lapce/lapce/releases/tag/v0.4.6) under Apache-2.0; its license and source history remain in the draft branch. [`THIRD_PARTY.md`](THIRD_PARTY.md) records the dependencies and donor audit for the current application.
+
+No first-party license grant is stated for this checkout. Binary distribution would need notices verified against its exact contents.
