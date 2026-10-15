@@ -257,6 +257,16 @@ index b20d13a..59f5d24 100644
 -            });
 +                },
 +            );
+diff --git a/lapce-app/src/editor.rs b/lapce-app/src/editor.rs
+index d878e72..51e49fb 100644
+--- a/lapce-app/src/editor.rs
++++ b/lapce-app/src/editor.rs
+@@ -1085,3 +1085,2 @@ pub fn run_focus_command(
+-                if self.common.find.replace_active.get_untracked() {
+-                    self.common.find.replace_focus.set(true);
+-                }
++                self.common.find.replace_active.set(true);
++                self.common.find.replace_focus.set(true);
 diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
 index fb85013..c7ac84f 100644
 --- a/lapce-app/src/palette.rs

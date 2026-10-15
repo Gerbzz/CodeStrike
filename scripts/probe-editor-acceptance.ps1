@@ -105,7 +105,9 @@ function Click-WindowOffset([System.Diagnostics.Process]$process, [int]$offsetX,
     $y = $rect.Top + $offsetY
     Write-Host "CODESTRIKE_ACCEPTANCE_CLICK=offset:$offsetX,$offsetY;pixel:$x,$y;rect:$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)"
     [CodeStrikeAcceptanceWindow]::SetCursorPos($x, $y) | Out-Null
+    Start-Sleep -Milliseconds 100
     [CodeStrikeAcceptanceWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 50
     [CodeStrikeAcceptanceWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
 }
 
@@ -234,14 +236,13 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 2
         Capture-Candidate 'file_find'
-        Click-WindowOffset $editor 365 108
+        [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
         Start-Sleep -Milliseconds 500
         Capture-Candidate 'replace_toggled'
-        # The hosted desktop screenshot is scaled; these are full-resolution
-        # window offsets at the centers of the replacement input and All icon.
-        Click-WindowOffset $editor 480 142
         [System.Windows.Forms.SendKeys]::SendWait('codestrike_replaced')
         Capture-Candidate 'replace_ready'
+        # The hosted desktop screenshot is scaled; use the full-resolution
+        # window offset at the center of the Replace All icon.
         Click-WindowOffset $editor 627 142
         [System.Windows.Forms.SendKeys]::SendWait('^s')
         Start-Sleep -Seconds 2
