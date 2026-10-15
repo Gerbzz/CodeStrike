@@ -237,10 +237,12 @@ try {
         Click-WindowOffset $editor 365 108
         Start-Sleep -Milliseconds 500
         Capture-Candidate 'replace_toggled'
-        Click-WindowOffset $editor 440 155
+        # The hosted desktop screenshot is scaled; these are full-resolution
+        # window offsets at the centers of the replacement input and All icon.
+        Click-WindowOffset $editor 480 142
         [System.Windows.Forms.SendKeys]::SendWait('codestrike_replaced')
         Capture-Candidate 'replace_ready'
-        Click-WindowOffset $editor 640 155
+        Click-WindowOffset $editor 627 142
         [System.Windows.Forms.SendKeys]::SendWait('^s')
         Start-Sleep -Seconds 2
         $replaced = [System.IO.File]::ReadAllText($path)
