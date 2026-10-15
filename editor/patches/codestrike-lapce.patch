@@ -277,6 +277,202 @@ index 35e79f56..e74885c7 100644
 +            EditorPosition::LineCol(line, byte_col) => {
 +                text.offset_of_line_col(*line, *byte_col)
 +            }
+diff --git a/lapce-app/src/global_search.rs b/lapce-app/src/global_search.rs
+index 557bf284..c12c42e7 100644
+--- a/lapce-app/src/global_search.rs
++++ b/lapce-app/src/global_search.rs
+@@ -1 +1 @@
+-use std::{ops::Range, path::PathBuf, rc::Rc};
++use std::{ops::Range, path::PathBuf, rc::Rc, sync::Arc, thread};
+@@ -10,0 +11,3 @@
++use lapce_proxy::codestrike_replace::{
++    self, AppliedFile, ReplacePreview, ReplaceQuery,
++};
+@@ -43,0 +47 @@ pub struct GlobalSearchData {
++    pub replace_editor: EditorData,
+@@ -44,0 +49,6 @@ pub struct GlobalSearchData {
++    pub replace_preview: RwSignal<Option<Arc<ReplacePreview>>>,
++    pub replace_status: RwSignal<String>,
++    pub replace_expanded: RwSignal<bool>,
++    pub applied_replace: RwSignal<Option<(PathBuf, Vec<AppliedFile>)>>,
++    preview_generation: RwSignal<u64>,
++    refresh_generation: RwSignal<u64>,
+@@ -110,0 +121 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
++        let replace_editor = main_split.editors.make_local(cx, common.clone());
+@@ -114,0 +126 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
++            replace_editor,
+@@ -115,0 +128,8 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
++            replace_preview: cx.create_rw_signal(None),
++            replace_status: cx.create_rw_signal(
++                "Enter replacement text, then Preview changes.".to_string(),
++            ),
++            replace_expanded: cx.create_rw_signal(false),
++            applied_replace: cx.create_rw_signal(None),
++            preview_generation: cx.create_rw_signal(0),
++            refresh_generation: cx.create_rw_signal(0),
+@@ -123,0 +144 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
++                global_search.refresh_generation.get();
+@@ -153,0 +175,17 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
++        {
++            let global_search = global_search.clone();
++            let search_buffer = global_search.editor.doc().buffer;
++            let replace_buffer = global_search.replace_editor.doc().buffer;
++            cx.create_effect(move |_| {
++                search_buffer.with(|buffer| buffer.to_string());
++                replace_buffer.with(|buffer| buffer.to_string());
++                global_search.common.find.case_matching.get();
++                global_search.common.find.whole_words.get();
++                global_search.common.find.is_regex.get();
++                global_search.replace_preview.set(None);
++                global_search
++                    .preview_generation
++                    .update(|generation| *generation += 1);
++            });
++        }
++
+@@ -165,0 +204,142 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
++    pub fn preview_workspace_replace(&self) {
++        let workspace = &self.common.workspace;
++        if !workspace.kind.is_local() {
++            self.replace_status.set(
++                "Workspace replacement currently supports local folders only."
++                    .into(),
++            );
++            return;
++        }
++        let Some(root) = workspace.path.clone() else {
++            self.replace_status
++                .set("Open a folder before replacing.".into());
++            return;
++        };
++        let query = ReplaceQuery {
++            pattern: self
++                .editor
++                .doc()
++                .buffer
++                .with_untracked(|buffer| buffer.to_string()),
++            replacement: self
++                .replace_editor
++                .doc()
++                .buffer
++                .with_untracked(|buffer| buffer.to_string()),
++            case_sensitive: self.common.find.case_sensitive(true),
++            whole_word: self.common.find.whole_words.get_untracked(),
++            is_regex: self.common.find.is_regex.get_untracked(),
++        };
++        self.replace_preview.set(None);
++        self.replace_status
++            .set("Scanning local workspace...".into());
++        let generation = self.preview_generation.get_untracked() + 1;
++        self.preview_generation.set(generation);
++        let search = self.clone();
++        let send = create_ext_action(
++            self.common.scope,
++            move |result: Result<ReplacePreview, String>| {
++                if search.preview_generation.get_untracked() != generation {
++                    return;
++                }
++                match result {
++                    Ok(plan) => {
++                        search.replace_status.set(format!(
++                        "Preview: {} matches in {} files; skipped {} unsupported, {} read-only, {} large.",
++                        plan.match_count(),
++                        plan.files.len(),
++                        plan.skipped_unsupported,
++                        plan.skipped_read_only,
++                        plan.skipped_large,
++                    ));
++                        search.replace_preview.set(Some(Arc::new(plan)));
++                    }
++                    Err(err) => {
++                        search.replace_status.set(format!("Preview refused: {err}"))
++                    }
++                }
++            },
++        );
++        thread::spawn(move || {
++            send(
++                codestrike_replace::preview(&root, &query)
++                    .map_err(|err| err.to_string()),
++            )
++        });
++    }
++
++    fn has_dirty_open_files(&self, paths: impl Iterator<Item = PathBuf>) -> bool {
++        let paths: Vec<_> = paths.collect();
++        self.main_split.docs.with_untracked(|docs| {
++            paths
++                .iter()
++                .any(|path| docs.get(path).is_some_and(|doc| !doc.is_pristine()))
++        })
++    }
++
++    pub fn apply_workspace_replace(&self) {
++        if self.applied_replace.get_untracked().is_some() {
++            self.replace_status.set(
++                "Undo the previous workspace replacement before applying another."
++                    .into(),
++            );
++            return;
++        }
++        let Some(plan) = self.replace_preview.get_untracked() else {
++            self.replace_status
++                .set("Preview changes before applying.".into());
++            return;
++        };
++        if self.has_dirty_open_files(plan.files.iter().map(|file| file.path.clone()))
++        {
++            self.replace_status
++                .set("Save or close matching dirty buffers before applying.".into());
++            return;
++        }
++        let report = codestrike_replace::apply(&plan);
++        let count = report.applied.len();
++        if count > 0 {
++            self.applied_replace
++                .set(Some((plan.root.clone(), report.applied)));
++        }
++        self.replace_preview.set(None);
++        self.refresh_generation
++            .update(|generation| *generation += 1);
++        self.replace_status.set(match report.error {
++            Some(err) => format!("Apply stopped: {err}"),
++            None => format!(
++                "Applied {} matches in {count} files. Checked Undo is available.",
++                plan.match_count()
++            ),
++        });
++    }
++
++    pub fn undo_workspace_replace(&self) {
++        let Some((root, files)) = self.applied_replace.get_untracked() else {
++            self.replace_status
++                .set("No replacement to undo in this session.".into());
++            return;
++        };
++        if self.has_dirty_open_files(files.iter().map(|item| item.file.path.clone()))
++        {
++            self.replace_status
++                .set("Save or close matching dirty buffers before Undo.".into());
++            return;
++        }
++        let count = files.len();
++        let report = codestrike_replace::undo(&root, files);
++        self.applied_replace.set(if report.applied.is_empty() {
++            None
++        } else {
++            Some((root, report.applied))
++        });
++        self.refresh_generation
++            .update(|generation| *generation += 1);
++        self.replace_status.set(match report.error {
++            Some(err) => err,
++            None => format!(
++                "Undo restored {count} files after checking their current bytes."
++            ),
++        });
++    }
++
 diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
 index fb850137..c7ac84ff 100644
 --- a/lapce-app/src/palette.rs
@@ -288,14 +484,154 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd4..4ec02f09 100644
+index 0cc1edd4..7746e1f7 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
-@@ -280 +280 @@ fn search_result(
+@@ -8 +8,3 @@
+-    views::{Decorators, container, label, scroll, stack, svg, virtual_stack},
++    views::{
++        Decorators, container, dyn_stack, label, scroll, stack, svg, virtual_stack,
++    },
+@@ -104 +106,2 @@ pub fn global_search_panel(
+-        search_result(workspace, global_search, internal_command, config),
++        search_result(workspace, global_search.clone(), internal_command, config),
++        workspace_replace_controls(global_search, config),
+@@ -109,0 +113,127 @@ pub fn global_search_panel(
++fn workspace_replace_controls(
++    global_search: GlobalSearchData,
++    config: ReadSignal<Arc<LapceConfig>>,
++) -> impl View {
++    let focus = global_search.common.focus;
++    let status = global_search.replace_status;
++    let preview = global_search.replace_preview;
++    let expanded = global_search.replace_expanded;
++    let replace_editor = global_search.replace_editor.clone();
++    let preview_action = global_search.clone();
++    let apply_action = global_search.clone();
++    let undo_action = global_search.clone();
++
++    stack((
++        label(move || {
++            if expanded.get() {
++                "Workspace replace (open)".to_string()
++            } else {
++                "Workspace replace (closed)".to_string()
++            }
++        })
++        .on_click_stop(move |_| expanded.update(|open| *open = !*open))
++        .style(|s| s.padding(8.0).hover(|s| s.cursor(CursorStyle::Pointer))),
++        stack((
++            label(|| "Replace across workspace".to_string())
++                .style(|s| s.font_bold()),
++            TextInputBuilder::new()
++                .build_editor(replace_editor)
++                .on_event_cont(EventListener::PointerDown, move |_| {
++                    focus.set(Focus::Panel(PanelKind::Search));
++                })
++                .style(move |s| {
++                    s.width_pct(100.0)
++                        .padding(5.0)
++                        .border(1.0)
++                        .border_radius(6.0)
++                        .border_color(config.get().color(LapceColor::LAPCE_BORDER))
++                }),
++            stack((
++                label(|| "Preview changes".to_string())
++                    .on_click_stop(move |_| {
++                        preview_action.preview_workspace_replace()
++                    })
++                    .style(move |s| {
++                        s.padding(6.0)
++                            .border(1.0)
++                            .border_color(
++                                config.get().color(LapceColor::LAPCE_BORDER),
++                            )
++                            .hover(|s| s.cursor(CursorStyle::Pointer))
++                    }),
++                label(|| "Apply preview".to_string())
++                    .on_click_stop(move |_| apply_action.apply_workspace_replace())
++                    .style(move |s| {
++                        s.padding(6.0)
++                            .border(1.0)
++                            .border_color(
++                                config.get().color(LapceColor::LAPCE_BORDER),
++                            )
++                            .hover(|s| s.cursor(CursorStyle::Pointer))
++                    }),
++                label(|| "Checked Undo".to_string())
++                    .on_click_stop(move |_| undo_action.undo_workspace_replace())
++                    .style(move |s| {
++                        s.padding(6.0)
++                            .border(1.0)
++                            .border_color(
++                                config.get().color(LapceColor::LAPCE_BORDER),
++                            )
++                            .hover(|s| s.cursor(CursorStyle::Pointer))
++                    }),
++            ))
++            .style(|s| s.items_center()),
++            label(move || status.get()).style(move |s| {
++                s.color(config.get().color(LapceColor::EDITOR_DIM))
++                    .min_width(0.0)
++            }),
++            scroll(
++                dyn_stack(
++                    move || {
++                        let Some(plan) = preview.get() else {
++                            return Vec::new();
++                        };
++                        let mut rows = Vec::new();
++                        for file in &plan.files {
++                            let relative = file
++                                .path
++                                .strip_prefix(&plan.root)
++                                .unwrap_or(&file.path);
++                            rows.push(format!(
++                                "{} ({} matches)",
++                                relative.display(),
++                                file.matches.len()
++                            ));
++                            for found in &file.matches {
++                                rows.push(format!(
++                                    "  {}:{}  {:?} → {:?}",
++                                    found.line,
++                                    found.column + 1,
++                                    found.found,
++                                    found.replacement,
++                                ));
++                            }
++                        }
++                        rows.into_iter().enumerate().collect::<Vec<_>>()
++                    },
++                    |(index, _)| *index,
++                    move |(_, row)| {
++                        label(move || row.clone()).style(|s| {
++                            s.min_width(0.0).text_ellipsis().padding_vert(2.0)
++                        })
++                    },
++                )
++                .style(|s| s.flex_col()),
++            )
++            .style(|s| s.height(150.0).width_pct(100.0)),
++        ))
++        .style(move |s| {
++            s.width_pct(100.0)
++                .padding(10.0)
++                .flex_col()
++                .apply_if(!expanded.get(), |s| s.hide())
++        }),
++    ))
++    .style(|s| s.width_pct(100.0).flex_col())
++}
++
+@@ -280 +410 @@ fn search_result(
 -                                                        EditorPosition::Line(
 +                                                        EditorPosition::LineCol(
-@@ -282,0 +283 @@ fn search_result(
+@@ -282,0 +413 @@ fn search_result(
 +                                                            start,
+@@ -308 +439 @@ fn search_result(
+-    .style(|s| s.size_pct(100.0, 100.0))
++    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
 index c229528f..a1ff42b9 100644
 --- a/lapce-app/src/plugin.rs
@@ -353,6 +689,14 @@ index 42849773..987b4a3c 100644
 @@ -24 +24 @@ fn project_dirs() -> Option<ProjectDirs> {
 -                return ProjectDirs::from_path(parent.join("lapce-data"));
 +                return ProjectDirs::from_path(parent.join("codestrike-data"));
+diff --git a/lapce-proxy/Cargo.toml b/lapce-proxy/Cargo.toml
+index 6acc85df..ea2c9d08 100644
+--- a/lapce-proxy/Cargo.toml
++++ b/lapce-proxy/Cargo.toml
+@@ -69,0 +70,3 @@ branch = "lapce"
++
++[dev-dependencies]
++tempfile = { workspace = true }
 diff --git a/lapce-proxy/src/buffer.rs b/lapce-proxy/src/buffer.rs
 index d49951fa..7d7c04cb 100644
 --- a/lapce-proxy/src/buffer.rs
@@ -600,3 +944,452 @@ index d49951fa..7d7c04cb 100644
 +        fs::remove_dir_all(dir).unwrap();
 +    }
 +}
+diff --git a/lapce-proxy/src/codestrike_replace.rs b/lapce-proxy/src/codestrike_replace.rs
+new file mode 100644
+index 00000000..3d3b4e9c
+--- /dev/null
++++ b/lapce-proxy/src/codestrike_replace.rs
+@@ -0,0 +1,437 @@
++//! Bounded, local-only workspace replacement with an explicit preview and checked undo.
++use std::{
++    fs::{self, File, OpenOptions},
++    io::{Read, Write},
++    path::{Path, PathBuf},
++    sync::atomic::{AtomicU64, Ordering},
++};
++
++use anyhow::{Context, Result, anyhow, bail};
++use regex::RegexBuilder;
++
++const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
++const MAX_CHANGED_BYTES: usize = 20 * 1024 * 1024;
++const MAX_CHANGED_FILES: usize = 200;
++const MAX_MATCHES: usize = 500;
++static TRANSACTION_ID: AtomicU64 = AtomicU64::new(0);
++
++#[derive(Clone, Debug)]
++pub struct ReplaceQuery {
++    pub pattern: String,
++    pub replacement: String,
++    pub case_sensitive: bool,
++    pub whole_word: bool,
++    pub is_regex: bool,
++}
++
++#[derive(Clone, Debug)]
++pub struct MatchPreview {
++    pub line: usize,
++    pub column: usize,
++    pub found: String,
++    pub replacement: String,
++}
++
++#[derive(Clone, Debug)]
++pub struct FilePreview {
++    pub path: PathBuf,
++    pub before: Vec<u8>,
++    pub after: Vec<u8>,
++    pub matches: Vec<MatchPreview>,
++}
++
++#[derive(Clone, Debug)]
++pub struct ReplacePreview {
++    pub root: PathBuf,
++    pub files: Vec<FilePreview>,
++    pub skipped_unsupported: usize,
++    pub skipped_read_only: usize,
++    pub skipped_large: usize,
++}
++
++impl ReplacePreview {
++    pub fn match_count(&self) -> usize {
++        self.files.iter().map(|file| file.matches.len()).sum()
++    }
++}
++
++#[derive(Clone, Debug)]
++pub struct AppliedFile {
++    pub file: FilePreview,
++    pub backup: PathBuf,
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct ApplyReport {
++    pub applied: Vec<AppliedFile>,
++    pub error: Option<String>,
++}
++
++impl ApplyReport {
++    pub fn successful(&self) -> bool {
++        self.error.is_none()
++    }
++}
++
++fn compiled_query(query: &ReplaceQuery) -> Result<regex::Regex> {
++    if query.pattern.is_empty() {
++        bail!("Enter a search pattern before previewing replacement");
++    }
++    let pattern = if query.is_regex {
++        query.pattern.clone()
++    } else {
++        regex::escape(&query.pattern)
++    };
++    let pattern = if query.whole_word {
++        format!(r"\b(?:{pattern})\b")
++    } else {
++        pattern
++    };
++    let regex = RegexBuilder::new(&pattern)
++        .case_insensitive(!query.case_sensitive)
++        .build()
++        .context("Invalid replacement search pattern")?;
++    if regex.is_match("") {
++        bail!("Zero-length matches are not supported for workspace replacement");
++    }
++    Ok(regex)
++}
++
++pub fn preview(root: &Path, query: &ReplaceQuery) -> Result<ReplacePreview> {
++    let root = root
++        .canonicalize()
++        .context("Workspace folder is unavailable")?;
++    let regex = compiled_query(query)?;
++    let mut result = ReplacePreview {
++        root: root.clone(),
++        files: Vec::new(),
++        skipped_unsupported: 0,
++        skipped_read_only: 0,
++        skipped_large: 0,
++    };
++    let mut changed_bytes = 0usize;
++    for entry in ignore::WalkBuilder::new(&root).build() {
++        let entry = entry.context("Workspace traversal failed")?;
++        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
++            continue;
++        }
++        let path = entry.path();
++        if path.is_symlink() {
++            continue;
++        }
++        let metadata = fs::metadata(path)?;
++        if metadata.len() > MAX_FILE_BYTES {
++            result.skipped_large += 1;
++            continue;
++        }
++        let bytes = fs::read(path)?;
++        if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
++            result.skipped_unsupported += 1;
++            continue;
++        }
++        if metadata.permissions().readonly() {
++            result.skipped_read_only += 1;
++            continue;
++        }
++        let text = std::str::from_utf8(&bytes)?;
++        let mut previews = Vec::new();
++        for found in regex.find_iter(text) {
++            let line_start =
++                text[..found.start()].rfind('\n').map_or(0, |pos| pos + 1);
++            let mut replacement = String::new();
++            if !query.is_regex {
++                replacement = query.replacement.clone();
++            } else if let Some(captures) = regex.captures_at(text, found.start()) {
++                captures.expand(&query.replacement, &mut replacement);
++            }
++            previews.push(MatchPreview {
++                line: text[..line_start]
++                    .bytes()
++                    .filter(|byte| *byte == b'\n')
++                    .count()
++                    + 1,
++                column: found.start() - line_start,
++                found: found.as_str().to_string(),
++                replacement,
++            });
++            if previews.len() + result.match_count() > MAX_MATCHES {
++                bail!("More than {MAX_MATCHES} matches; narrow the search");
++            }
++        }
++        if previews.is_empty() {
++            continue;
++        }
++        let after = if query.is_regex {
++            regex.replace_all(text, query.replacement.as_str())
++        } else {
++            regex.replace_all(text, regex::NoExpand(&query.replacement))
++        }
++        .into_owned()
++        .into_bytes();
++        changed_bytes += bytes.len() + after.len();
++        if changed_bytes > MAX_CHANGED_BYTES
++            || result.files.len() >= MAX_CHANGED_FILES
++        {
++            bail!("Replacement exceeds the bounded preview; narrow the search");
++        }
++        result.files.push(FilePreview {
++            path: path.to_path_buf(),
++            before: bytes,
++            after,
++            matches: previews,
++        });
++    }
++    result
++        .files
++        .sort_by(|left, right| left.path.cmp(&right.path));
++    Ok(result)
++}
++
++fn check_file(root: &Path, path: &Path, expected: &[u8]) -> Result<()> {
++    if path.is_symlink() || !path.canonicalize()?.starts_with(root) {
++        bail!("Replacement path escaped the workspace: {}", path.display());
++    }
++    if fs::metadata(path)?.permissions().readonly() {
++        bail!("File became read-only: {}", path.display());
++    }
++    if fs::read(path)? != expected {
++        bail!("File changed after preview: {}", path.display());
++    }
++    Ok(())
++}
++
++fn unique_path(path: &Path, kind: &str) -> PathBuf {
++    let id = TRANSACTION_ID.fetch_add(1, Ordering::Relaxed);
++    path.with_file_name(format!(
++        ".codestrike-{kind}-{}-{id}-{}",
++        std::process::id(),
++        path.file_name().unwrap_or_default().to_string_lossy()
++    ))
++}
++
++#[cfg(windows)]
++fn locked_file(path: &Path, expected: &[u8]) -> Result<File> {
++    use std::os::windows::fs::OpenOptionsExt;
++    // Exclude other writers while comparing and swapping this Windows file.
++    let mut file = OpenOptions::new()
++        .read(true)
++        .share_mode(0x00000001 | 0x00000004) // FILE_SHARE_READ | FILE_SHARE_DELETE
++        .open(path)?;
++    let mut bytes = Vec::new();
++    file.read_to_end(&mut bytes)?;
++    if bytes != expected {
++        bail!("File changed after preview: {}", path.display());
++    }
++    Ok(file)
++}
++
++#[cfg(windows)]
++fn write_checked(path: &Path, expected: &[u8], desired: &[u8]) -> Result<PathBuf> {
++    let _lock = locked_file(path, expected)?;
++    let temp = unique_path(path, "replace-temp");
++    let backup = unique_path(path, "replace-backup");
++    let mut output = OpenOptions::new()
++        .write(true)
++        .create_new(true)
++        .open(&temp)?;
++    let result = (|| -> Result<()> {
++        output.write_all(desired)?;
++        output.sync_all()?;
++        drop(output);
++        // create_new semantics: a pre-existing backup can never be overwritten.
++        fs::hard_link(path, &backup)?;
++        if fs::read(path)? != expected {
++            bail!("File changed during replacement: {}", path.display());
++        }
++        fs::remove_file(path)?;
++        if let Err(err) = fs::hard_link(&temp, path) {
++            // Restore only when the path is still absent; never overwrite a new writer.
++            let _ = fs::hard_link(&backup, path);
++            return Err(err.into());
++        }
++        Ok(())
++    })();
++    let _ = fs::remove_file(&temp);
++    if result.is_err() && fs::read(path).is_ok_and(|bytes| bytes == expected) {
++        let _ = fs::remove_file(&backup);
++    }
++    result.map(|()| backup)
++}
++
++#[cfg(not(windows))]
++fn write_checked(
++    _path: &Path,
++    _expected: &[u8],
++    _desired: &[u8],
++) -> Result<PathBuf> {
++    bail!("Checked workspace replacement currently requires Windows")
++}
++
++pub fn apply(plan: &ReplacePreview) -> ApplyReport {
++    let mut report = ApplyReport::default();
++    if plan.files.is_empty() {
++        report.error = Some("Preview has no matches".to_string());
++        return report;
++    }
++    for file in &plan.files {
++        if let Err(err) = check_file(&plan.root, &file.path, &file.before) {
++            report.error = Some(err.to_string());
++            return report;
++        }
++    }
++    for file in &plan.files {
++        match write_checked(&file.path, &file.before, &file.after) {
++            Ok(backup) => report.applied.push(AppliedFile {
++                file: file.clone(),
++                backup,
++            }),
++            Err(err) => {
++                report.error = Some(format!(
++                    "Stopped after {} files: {err}. Use checked Undo for files already changed.",
++                    report.applied.len()
++                ));
++                break;
++            }
++        }
++    }
++    report
++}
++
++pub fn undo(root: &Path, applied: Vec<AppliedFile>) -> ApplyReport {
++    let mut report = ApplyReport::default();
++    for item in &applied {
++        if let Err(err) = check_file(root, &item.file.path, &item.file.after)
++            .and_then(|()| {
++                if fs::read(&item.backup)? != item.file.before {
++                    bail!("Recovery backup changed: {}", item.backup.display());
++                }
++                Ok(())
++            })
++        {
++            report.applied = applied;
++            report.error = Some(format!("Undo refused: {err}"));
++            return report;
++        }
++    }
++    let mut remaining = Vec::new();
++    for item in applied {
++        match write_checked(&item.file.path, &item.file.after, &item.file.before) {
++            Ok(undo_backup) => {
++                let _ = fs::remove_file(undo_backup);
++                let _ = fs::remove_file(&item.backup);
++            }
++            Err(err) => {
++                report.error = Some(format!("Undo stopped: {err}"));
++                remaining.push(item);
++            }
++        }
++    }
++    report.applied = remaining;
++    report
++}
++
++#[cfg(all(test, windows))]
++mod tests {
++    use super::*;
++
++    fn fixture() -> tempfile::TempDir {
++        tempfile::tempdir().unwrap()
++    }
++
++    fn query() -> ReplaceQuery {
++        ReplaceQuery {
++            pattern: "café".into(),
++            replacement: "tea".into(),
++            case_sensitive: true,
++            whole_word: false,
++            is_regex: false,
++        }
++    }
++
++    #[test]
++    fn codestrike_replace_preview_apply_undo_across_files() {
++        let dir = fixture();
++        fs::write(dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
++        fs::write(dir.path().join("a.rs"), "let café = café;\r\n").unwrap();
++        fs::write(dir.path().join("b.rs"), "café\n").unwrap();
++        fs::write(dir.path().join("ignored.rs"), "café").unwrap();
++        fs::write(dir.path().join("bad.rs"), [0xff, b'c', b'a', b'f']).unwrap();
++        let read_only = dir.path().join("read_only.rs");
++        fs::write(&read_only, "café").unwrap();
++        let mut permissions = fs::metadata(&read_only).unwrap().permissions();
++        permissions.set_readonly(true);
++        fs::set_permissions(&read_only, permissions).unwrap();
++        let plan = preview(dir.path(), &query()).unwrap();
++        assert_eq!(plan.files.len(), 2);
++        assert_eq!(plan.match_count(), 3);
++        assert_eq!(plan.skipped_unsupported, 1);
++        assert_eq!(plan.skipped_read_only, 1);
++        assert_eq!(plan.files[0].matches[0].column, 4);
++        let applied = apply(&plan);
++        assert!(applied.successful(), "{:?}", applied.error);
++        assert_eq!(
++            fs::read(dir.path().join("a.rs")).unwrap(),
++            b"let tea = tea;\r\n"
++        );
++        assert_eq!(
++            fs::read(dir.path().join("ignored.rs")).unwrap(),
++            b"caf\xc3\xa9"
++        );
++        let undone = undo(&plan.root, applied.applied);
++        assert!(undone.successful(), "{:?}", undone.error);
++        assert!(undone.applied.is_empty());
++        assert_eq!(
++            fs::read(dir.path().join("a.rs")).unwrap(),
++            "let café = café;\r\n".as_bytes()
++        );
++    }
++
++    #[test]
++    fn codestrike_replace_rejects_external_changes_before_apply_and_undo() {
++        let dir = fixture();
++        let first = dir.path().join("one.rs");
++        let second = dir.path().join("two.rs");
++        fs::write(&first, "café").unwrap();
++        fs::write(&second, "café").unwrap();
++        let stale = preview(dir.path(), &query()).unwrap();
++        fs::write(&second, "external café").unwrap();
++        let blocked = apply(&stale);
++        assert!(!blocked.successful());
++        assert!(blocked.applied.is_empty());
++        assert_eq!(fs::read(&first).unwrap(), "café".as_bytes());
++        let fresh = preview(dir.path(), &query()).unwrap();
++        let applied = apply(&fresh);
++        assert!(applied.successful());
++        fs::write(&first, "newer edit").unwrap();
++        let blocked = undo(&fresh.root, applied.applied);
++        assert!(!blocked.successful());
++        assert_eq!(blocked.applied.len(), 2);
++        assert_eq!(fs::read(&first).unwrap(), b"newer edit");
++        assert_eq!(fs::read(&second).unwrap(), b"external tea");
++    }
++
++    #[test]
++    fn codestrike_replace_regex_captures_and_bom_are_preserved() {
++        let dir = fixture();
++        let file = dir.path().join("unicode.rs");
++        fs::write(&file, "\u{feff}let α = café;\r\n".as_bytes()).unwrap();
++        let plan = preview(
++            dir.path(),
++            &ReplaceQuery {
++                pattern: "(caf)(é)".into(),
++                replacement: "$2$1".into(),
++                case_sensitive: true,
++                whole_word: false,
++                is_regex: true,
++            },
++        )
++        .unwrap();
++        assert_eq!(plan.files[0].matches[0].replacement, "écaf");
++        let applied = apply(&plan);
++        assert!(applied.successful());
++        assert_eq!(
++            fs::read(&file).unwrap(),
++            "\u{feff}let α = écaf;\r\n".as_bytes()
++        );
++    }
++}
+diff --git a/lapce-proxy/src/lib.rs b/lapce-proxy/src/lib.rs
+index 62067e17..4d150fb8 100644
+--- a/lapce-proxy/src/lib.rs
++++ b/lapce-proxy/src/lib.rs
+@@ -4,0 +5 @@
++pub mod codestrike_replace;

@@ -84,6 +84,10 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_save_tests --lib
+      - name: Test checked workspace replacement engine
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_replace --lib
       - name: Test three tabs and reopen session
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
@@ -92,6 +96,10 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario Search
+      - name: Inspect workspace replacement controls
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario WorkspaceReplace
       - name: Test UTF-8 encoding and unsupported-file safety
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'

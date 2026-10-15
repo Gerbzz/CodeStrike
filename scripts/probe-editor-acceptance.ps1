@@ -1,4 +1,4 @@
-param([ValidateSet('Tabs', 'Search', 'Conflict', 'Encoding')][string]$Scenario = 'Tabs')
+param([ValidateSet('Tabs', 'Search', 'Conflict', 'Encoding', 'WorkspaceReplace')][string]$Scenario = 'Tabs')
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -275,6 +275,21 @@ try {
         Capture-Candidate 'replace_applied'
         'CODESTRIKE_ACCEPTANCE_PER_FILE_REPLACE=passed'
         if (-not $navigationPassed) { throw 'The workspace search hit did not place the caret at the exact UTF-8 byte column in other.rs.' }
+    } elseif ($Scenario -eq 'WorkspaceReplace') {
+        $first = Join-Path $fixture 'one.rs'
+        $second = Join-Path $fixture 'two.rs'
+        [System.IO.File]::WriteAllText($first, ("let café = café;" + [char]10))
+        [System.IO.File]::WriteAllText($second, ("let café = 2;" + [char]10))
+        $editor = Start-Candidate @($fixture, $first)
+        Click-Editor $editor
+        [System.Windows.Forms.SendKeys]::SendWait('^+f')
+        [System.Windows.Forms.SendKeys]::SendWait('café')
+        Start-Sleep -Seconds 2
+        Capture-Candidate 'workspace_replace_closed'
+        Click-WindowOffset $editor 360 530
+        Start-Sleep -Seconds 1
+        Capture-Candidate 'workspace_replace_open'
+        'CODESTRIKE_ACCEPTANCE_WORKSPACE_REPLACE=controls-inspected-only'
     } elseif ($Scenario -eq 'Encoding') {
         $utf8 = [System.Text.UTF8Encoding]::new($false)
         $supported = @(
