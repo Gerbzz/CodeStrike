@@ -423,6 +423,11 @@ try {
         $expected = [System.Text.Encoding]::UTF8.GetBytes($external + '// local_after_reload')
         if (-not (Wait-FileBytes $path $expected)) {
             Capture-Candidate 'clean_reload_save_failure'
+            $logs = @(Get-ChildItem -LiteralPath $localData -Recurse -File -Filter 'lapce*.log' -ErrorAction SilentlyContinue)
+            foreach ($log in $logs) {
+                "CODESTRIKE_CLEAN_RELOAD_LOG=$($log.FullName)"
+                Get-Content -LiteralPath $log.FullName | Select-String -Pattern 'CodeStrike watcher|open_file_changed|Clean file reload|Failed to re-read' | Select-Object -Last 60 | ForEach-Object { $_.Line.Substring(0, [Math]::Min($_.Line.Length, 350)) }
+            }
             throw 'Save after a clean external reload did not preserve the new disk text and local edit.'
         }
         Capture-Candidate 'clean_reload_saved'
