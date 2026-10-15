@@ -287,7 +287,7 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 2
         Capture-Candidate 'workspace_replace_closed'
-        Click-WindowOffset $editor 360 530
+        Click-WindowOffset $editor 360 330
         Start-Sleep -Seconds 1
         Capture-Candidate 'workspace_replace_open'
         'CODESTRIKE_ACCEPTANCE_WORKSPACE_REPLACE=controls-inspected-only'
