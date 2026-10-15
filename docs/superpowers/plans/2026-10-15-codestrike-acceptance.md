@@ -47,7 +47,7 @@
 - [x] Write the fixture, launch helpers, and three-file tab assertions (`34ebb07`).
 - [x] Run the hosted workflow and inspect the assertion and screenshot evidence ([run 38724671470](https://github.com/Gerbzz/CodeStrike/actions/runs/38724671470)).
 - [x] Resolve the observed CI window timeout with a 120-second bounded gate and rerun; no editor source failure was demonstrated (`75843fa`).
-- [ ] Record exact passed behavior in a documentation commit.
+- [x] Record exact passed behavior in `docs/migration/ACCEPTANCE.md` and the screenshot provenance record (`2172f4f`).
 
 ### Task 3: Search and replacement
 
@@ -68,7 +68,7 @@
 
 - [x] Add the disposable file interaction and disk assertion (`75843fa`).
 - [x] Run hosted workflow; disk was preserved and visible alert captured in [run 38724671470](https://github.com/Gerbzz/CodeStrike/actions/runs/38724671470); no source fix needed.
-- [ ] Record the result in a documentation commit.
+- [x] Record the result in `docs/migration/ACCEPTANCE.md` and the screenshot provenance record (`2172f4f`).
 
 ### Task 5: Publish acceptance record
 
