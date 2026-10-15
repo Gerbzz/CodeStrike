@@ -284,7 +284,7 @@ index 35e79f56..e74885c7 100644
 +                text.offset_of_line_col(*line, *byte_col)
 +            }
 diff --git a/lapce-app/src/global_search.rs b/lapce-app/src/global_search.rs
-index 557bf284..c12c42e7 100644
+index 557bf284..10298055 100644
 --- a/lapce-app/src/global_search.rs
 +++ b/lapce-app/src/global_search.rs
 @@ -1 +1 @@
@@ -336,7 +336,7 @@ index 557bf284..c12c42e7 100644
 +            });
 +        }
 +
-@@ -165,0 +204,142 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
+@@ -165,0 +204,174 @@ pub fn new(cx: Scope, main_split: MainSplitData) -> Self {
 +    pub fn preview_workspace_replace(&self) {
 +        let workspace = &self.common.workspace;
 +        if !workspace.kind.is_local() {
@@ -434,6 +434,19 @@ index 557bf284..c12c42e7 100644
 +        }
 +        let report = codestrike_replace::apply(&plan);
 +        let count = report.applied.len();
++        self.common.proxy.workspace_files_replaced(
++            report
++                .applied
++                .iter()
++                .map(|item| {
++                    (
++                        item.file.path.clone(),
++                        codestrike_replace::fingerprint(&item.file.before),
++                        codestrike_replace::fingerprint(&item.file.after),
++                    )
++                })
++                .collect(),
++        );
 +        if count > 0 {
 +            self.applied_replace
 +                .set(Some((plan.root.clone(), report.applied)));
@@ -463,7 +476,26 @@ index 557bf284..c12c42e7 100644
 +            return;
 +        }
 +        let count = files.len();
++        let original_files = files.clone();
 +        let report = codestrike_replace::undo(&root, files);
++        self.common.proxy.workspace_files_replaced(
++            original_files
++                .iter()
++                .filter(|item| {
++                    !report
++                        .applied
++                        .iter()
++                        .any(|remaining| remaining.file.path == item.file.path)
++                })
++                .map(|item| {
++                    (
++                        item.file.path.clone(),
++                        codestrike_replace::fingerprint(&item.file.after),
++                        codestrike_replace::fingerprint(&item.file.before),
++                    )
++                })
++                .collect(),
++        );
 +        self.applied_replace.set(if report.applied.is_empty() {
 +            None
 +        } else {
@@ -490,7 +522,7 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd4..7746e1f7 100644
+index 0cc1edd4..c5da1d11 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
 @@ -8 +8,3 @@
@@ -498,11 +530,14 @@ index 0cc1edd4..7746e1f7 100644
 +    views::{
 +        Decorators, container, dyn_stack, label, scroll, stack, svg, virtual_stack,
 +    },
-@@ -104 +106,2 @@ pub fn global_search_panel(
+@@ -37,0 +40 @@ pub fn global_search_panel(
++    let replace_expanded = global_search.replace_expanded;
+@@ -104 +107,3 @@ pub fn global_search_panel(
 -        search_result(workspace, global_search, internal_command, config),
-+        search_result(workspace, global_search.clone(), internal_command, config),
++        search_result(workspace, global_search.clone(), internal_command, config)
++            .style(move |s| s.apply_if(replace_expanded.get(), |s| s.hide())),
 +        workspace_replace_controls(global_search, config),
-@@ -109,0 +113,127 @@ pub fn global_search_panel(
+@@ -109,0 +115,134 @@ pub fn global_search_panel(
 +fn workspace_replace_controls(
 +    global_search: GlobalSearchData,
 +    config: ReadSignal<Arc<LapceConfig>>,
@@ -526,116 +561,123 @@ index 0cc1edd4..7746e1f7 100644
 +        })
 +        .on_click_stop(move |_| expanded.update(|open| *open = !*open))
 +        .style(|s| s.padding(8.0).hover(|s| s.cursor(CursorStyle::Pointer))),
-+        stack((
-+            label(|| "Replace across workspace".to_string())
-+                .style(|s| s.font_bold()),
-+            TextInputBuilder::new()
-+                .build_editor(replace_editor)
-+                .on_event_cont(EventListener::PointerDown, move |_| {
-+                    focus.set(Focus::Panel(PanelKind::Search));
-+                })
-+                .style(move |s| {
-+                    s.width_pct(100.0)
-+                        .padding(5.0)
-+                        .border(1.0)
-+                        .border_radius(6.0)
-+                        .border_color(config.get().color(LapceColor::LAPCE_BORDER))
-+                }),
++        scroll(
 +            stack((
-+                label(|| "Preview changes".to_string())
-+                    .on_click_stop(move |_| {
-+                        preview_action.preview_workspace_replace()
++                label(|| "Replace across workspace".to_string())
++                    .style(|s| s.font_bold()),
++                TextInputBuilder::new()
++                    .build_editor(replace_editor)
++                    .on_event_cont(EventListener::PointerDown, move |_| {
++                        focus.set(Focus::Panel(PanelKind::Search));
 +                    })
 +                    .style(move |s| {
-+                        s.padding(6.0)
++                        s.width_pct(100.0)
++                            .padding(5.0)
 +                            .border(1.0)
++                            .border_radius(6.0)
 +                            .border_color(
 +                                config.get().color(LapceColor::LAPCE_BORDER),
 +                            )
-+                            .hover(|s| s.cursor(CursorStyle::Pointer))
 +                    }),
-+                label(|| "Apply preview".to_string())
-+                    .on_click_stop(move |_| apply_action.apply_workspace_replace())
-+                    .style(move |s| {
-+                        s.padding(6.0)
-+                            .border(1.0)
-+                            .border_color(
-+                                config.get().color(LapceColor::LAPCE_BORDER),
-+                            )
-+                            .hover(|s| s.cursor(CursorStyle::Pointer))
-+                    }),
-+                label(|| "Checked Undo".to_string())
-+                    .on_click_stop(move |_| undo_action.undo_workspace_replace())
-+                    .style(move |s| {
-+                        s.padding(6.0)
-+                            .border(1.0)
-+                            .border_color(
-+                                config.get().color(LapceColor::LAPCE_BORDER),
-+                            )
-+                            .hover(|s| s.cursor(CursorStyle::Pointer))
-+                    }),
-+            ))
-+            .style(|s| s.items_center()),
-+            label(move || status.get()).style(move |s| {
-+                s.color(config.get().color(LapceColor::EDITOR_DIM))
-+                    .min_width(0.0)
-+            }),
-+            scroll(
-+                dyn_stack(
-+                    move || {
-+                        let Some(plan) = preview.get() else {
-+                            return Vec::new();
-+                        };
-+                        let mut rows = Vec::new();
-+                        for file in &plan.files {
-+                            let relative = file
-+                                .path
-+                                .strip_prefix(&plan.root)
-+                                .unwrap_or(&file.path);
-+                            rows.push(format!(
-+                                "{} ({} matches)",
-+                                relative.display(),
-+                                file.matches.len()
-+                            ));
-+                            for found in &file.matches {
-+                                rows.push(format!(
-+                                    "  {}:{}  {:?} → {:?}",
-+                                    found.line,
-+                                    found.column + 1,
-+                                    found.found,
-+                                    found.replacement,
-+                                ));
-+                            }
-+                        }
-+                        rows.into_iter().enumerate().collect::<Vec<_>>()
-+                    },
-+                    |(index, _)| *index,
-+                    move |(_, row)| {
-+                        label(move || row.clone()).style(|s| {
-+                            s.min_width(0.0).text_ellipsis().padding_vert(2.0)
++                stack((
++                    label(|| "Preview changes".to_string())
++                        .on_click_stop(move |_| {
++                            preview_action.preview_workspace_replace()
 +                        })
-+                    },
++                        .style(move |s| {
++                            s.padding(6.0)
++                                .border(1.0)
++                                .border_color(
++                                    config.get().color(LapceColor::LAPCE_BORDER),
++                                )
++                                .hover(|s| s.cursor(CursorStyle::Pointer))
++                        }),
++                    label(|| "Apply preview".to_string())
++                        .on_click_stop(move |_| {
++                            apply_action.apply_workspace_replace()
++                        })
++                        .style(move |s| {
++                            s.padding(6.0)
++                                .border(1.0)
++                                .border_color(
++                                    config.get().color(LapceColor::LAPCE_BORDER),
++                                )
++                                .hover(|s| s.cursor(CursorStyle::Pointer))
++                        }),
++                    label(|| "Checked Undo".to_string())
++                        .on_click_stop(move |_| undo_action.undo_workspace_replace())
++                        .style(move |s| {
++                            s.padding(6.0)
++                                .border(1.0)
++                                .border_color(
++                                    config.get().color(LapceColor::LAPCE_BORDER),
++                                )
++                                .hover(|s| s.cursor(CursorStyle::Pointer))
++                        }),
++                ))
++                .style(|s| s.items_center()),
++                label(move || status.get()).style(move |s| {
++                    s.color(config.get().color(LapceColor::EDITOR_DIM))
++                        .min_width(0.0)
++                }),
++                scroll(
++                    dyn_stack(
++                        move || {
++                            let Some(plan) = preview.get() else {
++                                return Vec::new();
++                            };
++                            let mut rows = Vec::new();
++                            for file in &plan.files {
++                                let relative = file
++                                    .path
++                                    .strip_prefix(&plan.root)
++                                    .unwrap_or(&file.path);
++                                rows.push(format!(
++                                    "{} ({} matches)",
++                                    relative.display(),
++                                    file.matches.len()
++                                ));
++                                for found in &file.matches {
++                                    rows.push(format!(
++                                        "  {}:{}  {:?} => {:?}  | {}",
++                                        found.line,
++                                        found.column + 1,
++                                        found.found,
++                                        found.replacement,
++                                        found.context,
++                                    ));
++                                }
++                            }
++                            rows.into_iter().enumerate().collect::<Vec<_>>()
++                        },
++                        |(index, _)| *index,
++                        move |(_, row)| {
++                            label(move || row.clone()).style(|s| {
++                                s.min_width(0.0).text_ellipsis().padding_vert(2.0)
++                            })
++                        },
++                    )
++                    .style(|s| s.flex_col()),
 +                )
-+                .style(|s| s.flex_col()),
-+            )
-+            .style(|s| s.height(150.0).width_pct(100.0)),
-+        ))
++                .style(|s| s.height(90.0).width_pct(100.0)),
++            ))
++            .style(|s| s.width_pct(100.0).padding(10.0).flex_col()),
++        )
 +        .style(move |s| {
 +            s.width_pct(100.0)
-+                .padding(10.0)
-+                .flex_col()
++                .height(200.0)
 +                .apply_if(!expanded.get(), |s| s.hide())
 +        }),
 +    ))
-+    .style(|s| s.width_pct(100.0).flex_col())
++    .style(|s| s.width_pct(100.0).flex_col().z_index(2))
 +}
 +
-@@ -280 +410 @@ fn search_result(
+@@ -280 +419 @@ fn search_result(
 -                                                        EditorPosition::Line(
 +                                                        EditorPosition::LineCol(
-@@ -282,0 +413 @@ fn search_result(
+@@ -282,0 +422 @@ fn search_result(
 +                                                            start,
-@@ -308 +439 @@ fn search_result(
+@@ -308 +448 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
 +    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
@@ -704,7 +746,7 @@ index 6acc85df..ea2c9d08 100644
 +[dev-dependencies]
 +tempfile = { workspace = true }
 diff --git a/lapce-proxy/src/buffer.rs b/lapce-proxy/src/buffer.rs
-index d49951fa..7d7c04cb 100644
+index d49951fa..d1cae82d 100644
 --- a/lapce-proxy/src/buffer.rs
 +++ b/lapce-proxy/src/buffer.rs
 @@ -5,0 +6 @@
@@ -818,13 +860,30 @@ index d49951fa..7d7c04cb 100644
 +        })();
 +        if result.is_err() {
 +            let _ = fs::remove_file(&temp_path);
-@@ -112,2 +169 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
--
--        Ok(())
+@@ -111,0 +169,2 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
 +        result
-@@ -350,0 +407,127 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
++    }
+@@ -112,0 +172,17 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
++    pub fn accept_workspace_replacement(
++        &mut self,
++        before: u64,
++        after: u64,
++    ) -> Result<()> {
++        if self.read_only
++            || self.disk_fingerprint != Some(before)
++            || ![before, after]
++                .contains(&fingerprint(self.rope.to_string().as_bytes()))
++            || fingerprint_file(&self.path)? != Some(after)
++        {
++            return Err(anyhow!(
++                "open buffer changed while workspace replacement was applying"
++            ));
++        }
++        self.disk_fingerprint = Some(after);
++        self.mod_time = get_mod_time(&self.path);
+@@ -350,0 +427,162 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
 +
-+fn fingerprint(bytes: &[u8]) -> u64 {
++pub(crate) fn fingerprint(bytes: &[u8]) -> u64 {
 +    let mut hasher = std::collections::hash_map::DefaultHasher::new();
 +    hasher.write(bytes);
 +    hasher.finish()
@@ -878,6 +937,41 @@ index d49951fa..7d7c04cb 100644
 +        fs::write(&path, "external edit\n").unwrap();
 +        assert!(buffer.save(buffer.rev, false).is_err());
 +        assert_eq!(fs::read_to_string(&path).unwrap(), "external edit\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn workspace_replacement_refreshes_snapshot_for_later_normal_save() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        fs::write(&path, "workspace replacement\n").unwrap();
++        buffer
++            .accept_workspace_replacement(
++                fingerprint(b"original\n"),
++                fingerprint(b"workspace replacement\n"),
++            )
++            .unwrap();
++        buffer.rope = Rope::from("later editor save\n");
++        buffer.save(buffer.rev, false).unwrap();
++        assert_eq!(fs::read(&path).unwrap(), b"later editor save\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn workspace_replacement_refuses_dirty_open_buffer_snapshot() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        buffer.rope = Rope::from("unsaved local edit\n");
++        fs::write(&path, "workspace replacement\n").unwrap();
++        assert!(
++            buffer
++                .accept_workspace_replacement(
++                    fingerprint(b"original\n"),
++                    fingerprint(b"workspace replacement\n"),
++                )
++                .is_err()
++        );
++        assert_eq!(fs::read(&path).unwrap(), b"workspace replacement\n");
 +        fs::remove_dir_all(dir).unwrap();
 +    }
 +
@@ -952,10 +1046,10 @@ index d49951fa..7d7c04cb 100644
 +}
 diff --git a/lapce-proxy/src/codestrike_replace.rs b/lapce-proxy/src/codestrike_replace.rs
 new file mode 100644
-index 00000000..3d3b4e9c
+index 00000000..0fb2e254
 --- /dev/null
 +++ b/lapce-proxy/src/codestrike_replace.rs
-@@ -0,0 +1,437 @@
+@@ -0,0 +1,473 @@
 +//! Bounded, local-only workspace replacement with an explicit preview and checked undo.
 +use std::{
 +    fs::{self, File, OpenOptions},
@@ -964,7 +1058,7 @@ index 00000000..3d3b4e9c
 +    sync::atomic::{AtomicU64, Ordering},
 +};
 +
-+use anyhow::{Context, Result, anyhow, bail};
++use anyhow::{Context, Result, bail};
 +use regex::RegexBuilder;
 +
 +const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
@@ -972,6 +1066,10 @@ index 00000000..3d3b4e9c
 +const MAX_CHANGED_FILES: usize = 200;
 +const MAX_MATCHES: usize = 500;
 +static TRANSACTION_ID: AtomicU64 = AtomicU64::new(0);
++
++pub fn fingerprint(bytes: &[u8]) -> u64 {
++    crate::buffer::fingerprint(bytes)
++}
 +
 +#[derive(Clone, Debug)]
 +pub struct ReplaceQuery {
@@ -986,6 +1084,7 @@ index 00000000..3d3b4e9c
 +pub struct MatchPreview {
 +    pub line: usize,
 +    pub column: usize,
++    pub context: String,
 +    pub found: String,
 +    pub replacement: String,
 +}
@@ -1068,7 +1167,7 @@ index 00000000..3d3b4e9c
 +        skipped_large: 0,
 +    };
 +    let mut changed_bytes = 0usize;
-+    for entry in ignore::WalkBuilder::new(&root).build() {
++    for entry in ignore::WalkBuilder::new(&root).require_git(false).build() {
 +        let entry = entry.context("Workspace traversal failed")?;
 +        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
 +            continue;
@@ -1094,8 +1193,16 @@ index 00000000..3d3b4e9c
 +        let text = std::str::from_utf8(&bytes)?;
 +        let mut previews = Vec::new();
 +        for found in regex.find_iter(text) {
++            if found.as_str().contains('\n') {
++                bail!(
++                    "Multiline matches are not supported in workspace replacement"
++                );
++            }
 +            let line_start =
 +                text[..found.start()].rfind('\n').map_or(0, |pos| pos + 1);
++            let line_end = text[found.start()..]
++                .find('\n')
++                .map_or(text.len(), |offset| found.start() + offset);
 +            let mut replacement = String::new();
 +            if !query.is_regex {
 +                replacement = query.replacement.clone();
@@ -1109,6 +1216,11 @@ index 00000000..3d3b4e9c
 +                    .count()
 +                    + 1,
 +                column: found.start() - line_start,
++                context: text[line_start..line_end]
++                    .trim_end_matches('\r')
++                    .chars()
++                    .take(160)
++                    .collect(),
 +                found: found.as_str().to_string(),
 +                replacement,
 +            });
@@ -1193,6 +1305,7 @@ index 00000000..3d3b4e9c
 +        .create_new(true)
 +        .open(&temp)?;
 +    let result = (|| -> Result<()> {
++        fs::set_permissions(&temp, fs::metadata(path)?.permissions())?;
 +        output.write_all(desired)?;
 +        output.sync_all()?;
 +        drop(output);
@@ -1213,7 +1326,16 @@ index 00000000..3d3b4e9c
 +    if result.is_err() && fs::read(path).is_ok_and(|bytes| bytes == expected) {
 +        let _ = fs::remove_file(&backup);
 +    }
-+    result.map(|()| backup)
++    result.map(|()| backup.clone()).with_context(|| {
++        if backup.exists() {
++            format!(
++                "Original bytes retained at {}; inspect before retrying",
++                backup.display()
++            )
++        } else {
++            format!("Could not replace {}", path.display())
++        }
++    })
 +}
 +
 +#[cfg(not(windows))]
@@ -1314,6 +1436,8 @@ index 00000000..3d3b4e9c
 +        fs::write(dir.path().join("b.rs"), "café\n").unwrap();
 +        fs::write(dir.path().join("ignored.rs"), "café").unwrap();
 +        fs::write(dir.path().join("bad.rs"), [0xff, b'c', b'a', b'f']).unwrap();
++        fs::write(dir.path().join("utf16.rs"), [0xff, 0xfe, b'c', 0]).unwrap();
++        fs::write(dir.path().join("binary.rs"), [b'c', 0, b'f']).unwrap();
 +        let read_only = dir.path().join("read_only.rs");
 +        fs::write(&read_only, "café").unwrap();
 +        let mut permissions = fs::metadata(&read_only).unwrap().permissions();
@@ -1322,11 +1446,16 @@ index 00000000..3d3b4e9c
 +        let plan = preview(dir.path(), &query()).unwrap();
 +        assert_eq!(plan.files.len(), 2);
 +        assert_eq!(plan.match_count(), 3);
-+        assert_eq!(plan.skipped_unsupported, 1);
++        assert_eq!(plan.skipped_unsupported, 3);
 +        assert_eq!(plan.skipped_read_only, 1);
 +        assert_eq!(plan.files[0].matches[0].column, 4);
 +        let applied = apply(&plan);
 +        assert!(applied.successful(), "{:?}", applied.error);
++        let backup = applied.applied[0].backup.clone();
++        assert_eq!(
++            fs::read(&backup).unwrap().as_slice(),
++            plan.files[0].before.as_slice()
++        );
 +        assert_eq!(
 +            fs::read(dir.path().join("a.rs")).unwrap(),
 +            b"let tea = tea;\r\n"
@@ -1338,6 +1467,7 @@ index 00000000..3d3b4e9c
 +        let undone = undo(&plan.root, applied.applied);
 +        assert!(undone.successful(), "{:?}", undone.error);
 +        assert!(undone.applied.is_empty());
++        assert!(!backup.exists());
 +        assert_eq!(
 +            fs::read(dir.path().join("a.rs")).unwrap(),
 +            "let café = café;\r\n".as_bytes()
@@ -1393,9 +1523,50 @@ index 00000000..3d3b4e9c
 +        );
 +    }
 +}
+diff --git a/lapce-proxy/src/dispatch.rs b/lapce-proxy/src/dispatch.rs
+index 35a42c8d..3f160b2b 100644
+--- a/lapce-proxy/src/dispatch.rs
++++ b/lapce-proxy/src/dispatch.rs
+@@ -144,0 +145,23 @@ fn handle_notification(&mut self, rpc: ProxyNotification) {
++            WorkspaceFilesReplaced { files } => {
++                for (path, before, after) in files {
++                    if let Some(buffer) = self.buffers.get_mut(&path) {
++                        if let Err(err) =
++                            buffer.accept_workspace_replacement(before, after)
++                        {
++                            tracing::error!(
++                                "Workspace replacement buffer refresh: {err}"
++                            );
++                            continue;
++                        }
++                        match load_file(&path) {
++                            Ok(content) => self.core_rpc.open_file_changed(
++                                path,
++                                FileChanged::Change(content),
++                            ),
++                            Err(err) => tracing::error!(
++                                "Workspace replacement file refresh: {err}"
++                            ),
++                        }
++                    }
++                }
++            }
 diff --git a/lapce-proxy/src/lib.rs b/lapce-proxy/src/lib.rs
 index 62067e17..4d150fb8 100644
 --- a/lapce-proxy/src/lib.rs
 +++ b/lapce-proxy/src/lib.rs
 @@ -4,0 +5 @@
 +pub mod codestrike_replace;
+diff --git a/lapce-rpc/src/proxy.rs b/lapce-rpc/src/proxy.rs
+index b58b2ad3..8bb9f044 100644
+--- a/lapce-rpc/src/proxy.rs
++++ b/lapce-rpc/src/proxy.rs
+@@ -240,0 +241,3 @@ pub enum ProxyNotification {
++    WorkspaceFilesReplaced {
++        files: Vec<(PathBuf, u64, u64)>,
++    },
+@@ -595,0 +599,4 @@ pub fn notification(&self, notification: ProxyNotification) {
++    pub fn workspace_files_replaced(&self, files: Vec<(PathBuf, u64, u64)>) {
++        self.notification(ProxyNotification::WorkspaceFilesReplaced { files });
++    }
++

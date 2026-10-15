@@ -278,12 +278,13 @@ try {
     } elseif ($Scenario -eq 'WorkspaceReplace') {
         $first = Join-Path $fixture 'one.rs'
         $second = Join-Path $fixture 'two.rs'
-        [System.IO.File]::WriteAllText($first, ("let café = café;" + [char]10))
-        [System.IO.File]::WriteAllText($second, ("let café = 2;" + [char]10))
+        $needle = 'codestrike_workspace_needle'
+        [System.IO.File]::WriteAllText($first, ("let café = $needle;" + [char]10))
+        [System.IO.File]::WriteAllText($second, ("let café = $needle;" + [char]10))
         $editor = Start-Candidate @($fixture, $first)
         Click-Editor $editor
         [System.Windows.Forms.SendKeys]::SendWait('^+f')
-        [System.Windows.Forms.SendKeys]::SendWait('café')
+        [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 2
         Capture-Candidate 'workspace_replace_closed'
         Click-WindowOffset $editor 360 530
