@@ -1,6 +1,7 @@
 # CodeStrike editor acceptance matrix
 
-Every item below is **pending** for the Lapce-based CodeStrike candidate.
+Every full row below remains **pending** for the Lapce-based CodeStrike candidate;
+the narrower passed probes are recorded after the table.
 Upstream source inspection establishes implementation entry points, not a
 passing CodeStrike product test. Record the exact commit, Windows version,
 run method, fixture, result, and screenshot/log where useful for each run.
@@ -64,3 +65,17 @@ and asserted the marker appeared on disk. All three proxy save tests passed
 again. This establishes one normal UTF-8 file edit/save path, not the full
 file/session, encoding, search, or language-tooling rows. Do not advertise
 pending rows.
+
+The [first three-tab run](https://github.com/Gerbzz/CodeStrike/actions/runs/38722983849)
+compiled and passed the proxy tests but neither GUI probe observed a window
+within its 20–30 second limit. It established no new GUI result. The
+[bounded rerun](https://github.com/Gerbzz/CodeStrike/actions/runs/38724671470)
+allowed 120 seconds for GUI startup and passed: three distinct file edits and
+saves, graceful close, restored tabs, and three further distinct edits/saves;
+workspace search visibly returned three matches in two fixture files; a dirty
+GUI buffer refused to overwrite an external file change and displayed an
+alert while the external bytes remained intact. The unedited
+[screenshots and hashes](evidence/README.md) provide visual provenance.
+Search-result navigation and per-file Replace All are under a further hosted
+assertion. Workspace-wide replace preview, encoding edge cases, split tabs,
+and local language tooling remain unverified.

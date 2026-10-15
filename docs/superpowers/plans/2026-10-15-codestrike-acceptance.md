@@ -44,10 +44,10 @@
 
 **Interface:** `probe-editor-acceptance.ps1 -Scenario Tabs` returns nonzero unless three fixture files receive distinct tab edits, close gracefully, and receive distinct second edits after reopening in the same isolated profile. It emits bounded tab and reopened-session screenshots.
 
-- [ ] Write the fixture, launch helpers, and three-file tab assertions.
-- [ ] Run the hosted workflow and inspect the assertion and screenshot evidence.
-- [ ] Fix actual editor failures in `editor/patches/codestrike-lapce.patch` with a focused regression test; rerun the hosted workflow.
-- [ ] Record exact passed behavior and commit.
+- [x] Write the fixture, launch helpers, and three-file tab assertions (`34ebb07`).
+- [x] Run the hosted workflow and inspect the assertion and screenshot evidence ([run 38724671470](https://github.com/Gerbzz/CodeStrike/actions/runs/38724671470)).
+- [x] Resolve the observed CI window timeout with a 120-second bounded gate and rerun; no editor source failure was demonstrated (`75843fa`).
+- [ ] Record exact passed behavior in a documentation commit.
 
 ### Task 3: Search and replacement
 
@@ -55,8 +55,8 @@
 
 **Interface:** `-Scenario Search` records a workspace-search result capture and verifies a per-file replace and Ctrl+S changes only the intended synthetic file. A reviewable workspace-wide replace is recorded as pending unless implemented and tested.
 
-- [ ] Add unique search fixture and search/result capture.
-- [ ] Add per-file replace interaction and disk assertions.
+- [x] Add unique search fixture and search/result capture (`75843fa`).
+- [x] Add per-file replace interaction and disk assertions (`c46266f`); hosted outcome pending.
 - [ ] Run hosted workflow; fix any demonstrated source defect with regression coverage and rerun.
 - [ ] Record scope and commit.
 
@@ -66,9 +66,9 @@
 
 **Interface:** `-Scenario Conflict` edits one file without saving, writes different bytes externally, invokes GUI Save, asserts external bytes remain intact, and captures the GUI alert/editor state.
 
-- [ ] Add the disposable file interaction and disk assertion.
-- [ ] Run hosted workflow; fix any demonstrated source defect with regression coverage and rerun.
-- [ ] Record the result and commit.
+- [x] Add the disposable file interaction and disk assertion (`75843fa`).
+- [x] Run hosted workflow; disk was preserved and visible alert captured in [run 38724671470](https://github.com/Gerbzz/CodeStrike/actions/runs/38724671470); no source fix needed.
+- [ ] Record the result in a documentation commit.
 
 ### Task 5: Publish acceptance record
 
