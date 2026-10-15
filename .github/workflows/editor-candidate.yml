@@ -1,0 +1,60 @@
+name: CodeStrike editor candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [draft/lapce-foundation-migration]
+    paths:
+      - .github/workflows/editor-candidate.yml
+      - .gitmodules
+      - editor/**
+      - scripts/prepare-lapce.ps1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codestrike-editor-candidate
+  cancel-in-progress: true
+
+jobs:
+  windows-editor:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: Inspect runner and pinned source
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
+          "Runner free space: {0:N2} GiB" -f ($free / 1GB)
+          git -C editor/lapce rev-parse HEAD
+      - name: Prepare local CodeStrike candidate
+        shell: pwsh
+        run: .\scripts\prepare-lapce.ps1
+      - name: Verify formatting
+        shell: pwsh
+        run: cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check
+      - name: Compile Windows editor
+        shell: pwsh
+        run: cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
+      - name: Smoke test candidate executable
+        shell: pwsh
+        run: |
+          $exe = 'editor/lapce/target/debug/lapce.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw 'Editor executable was not produced.' }
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Editor --version failed.' }
+          & $exe --help | Select-Object -First 16
+          if ($LASTEXITCODE -ne 0) { throw 'Editor --help failed.' }
+          $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
+          "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
