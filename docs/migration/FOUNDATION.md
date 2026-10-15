@@ -63,8 +63,10 @@ end-to-end product test.
    settings migration/copy with a reversible backup
    and tested rollback remains pending. Keep brand out of working chrome unless
    user testing shows a clear purpose.
-5. Port CodeStrike's safe-save/external-change and recovery behavior only
-   where Lapce is missing it. Use focused adapters and tests; do not replace
+5. The patch ports CodeStrike's conflict guard, backup collision check, and
+   temporary-file save to Lapce's proxy buffer. Hosted tests must verify the
+   new behavior; crash recovery and GUI conflict messaging remain pending.
+   Use focused adapters and tests; do not replace
    Lapce's rope, tabs, palette, explorer, search, or LSP with the old text box.
 6. Run the acceptance matrix in `ACCEPTANCE.md`. Only after a tested Windows
    editor exists should the default launcher switch to it. Keep the old
@@ -90,7 +92,10 @@ end-to-end product test.
   a 45-minute limit, no cache/artifact upload, and read-only repository token.
   The first run found and fixed Windows CRLF patch application. The second run
   [compiled and passed CLI smoke tests](https://github.com/Gerbzz/CodeStrike/actions/runs/38712789811)
-  in 5m48s, with 27.84 GiB free on the runner afterward. A subsequent run
-  must verify the expanded startup/settings patch and GUI behavior.
+  in 5m48s, with 27.84 GiB free on the runner afterward. The
+  [expanded startup/settings patch](https://github.com/Gerbzz/CodeStrike/actions/runs/38714317402)
+  compiled in 7m51s and passed CLI smoke tests; its GUI probe watched the
+  short-lived launcher, so that step must be rerun with `--wait`. The save
+  safety patch and focused tests are part of the next hosted run.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.

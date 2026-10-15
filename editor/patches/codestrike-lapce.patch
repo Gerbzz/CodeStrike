@@ -211,6 +211,45 @@ index 1070577..b966ed8 100644
 @@ -217 +217 @@ fn merge_config(
 -                    let path = path.join("./.lapce/settings.toml");
 +                    let path = path.join("./.codestrike/settings.toml");
+diff --git a/lapce-app/src/doc.rs b/lapce-app/src/doc.rs
+index b20d13a..e32fcc5 100644
+--- a/lapce-app/src/doc.rs
++++ b/lapce-app/src/doc.rs
+@@ -76 +76,2 @@
+-    command::{CommandKind, LapceCommand},
++    alert::AlertButton,
++    command::{CommandKind, InternalCommand, LapceCommand},
+@@ -1405,0 +1407 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
++            let internal_command = self.common.internal_command;
+@@ -1407,7 +1409,9 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+-                if let Ok(ProxyResponse::SaveResponse {}) = result {
+-                    let current_rev = buffer.with_untracked(|buffer| buffer.rev());
+-                    if current_rev == rev {
+-                        buffer.update(|buffer| {
+-                            buffer.set_pristine();
+-                        });
+-                        after_action();
++                match result {
++                    Ok(ProxyResponse::SaveResponse {}) => {
++                        let current_rev = buffer.with_untracked(|buffer| buffer.rev());
++                        if current_rev == rev {
++                            buffer.update(|buffer| {
++                                buffer.set_pristine();
++                            });
++                            after_action();
++                        }
+@@ -1414,0 +1419,11 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
++                    Err(err) => internal_command.send(InternalCommand::ShowAlert {
++                        title: "CodeStrike could not save this file".to_string(),
++                        msg: format!("{}. Your editor buffer is still open; save a copy or resolve the conflict before retrying.", err.message),
++                        buttons: vec![AlertButton {
++                            text: "Keep editing".to_string(),
++                            action: Rc::new(move || {
++                                internal_command.send(InternalCommand::HideAlert);
++                            }),
++                        }],
++                    }),
++                    _ => {}
 diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
 index fb85013..c7ac84f 100644
 --- a/lapce-app/src/palette.rs
@@ -246,10 +285,19 @@ index 81455b2..90657bf 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/title.rs b/lapce-app/src/title.rs
-index 5933603..2c1b786 100644
+index 5933603..b6cdf3d 100644
 --- a/lapce-app/src/title.rs
 +++ b/lapce-app/src/title.rs
-@@ -380 +380 @@ fn right(
+@@ -47,8 +46,0 @@ fn left(
+-        container(svg(move || config.get().ui_svg(LapceIcons::LOGO)).style(
+-            move |s| {
+-                let config = config.get();
+-                s.size(16.0, 16.0)
+-                    .color(config.color(LapceColor::LAPCE_ICON_ACTIVE))
+-            },
+-        ))
+-        .style(move |s| s.margin_horiz(10.0).apply_if(is_macos, |s| s.hide())),
+@@ -380 +372 @@ fn right(
 -                    .entry(MenuItem::new("About Lapce").action(move || {
 +                    .entry(MenuItem::new("About CodeStrike").action(move || {
 diff --git a/lapce-core/build.rs b/lapce-core/build.rs
@@ -269,3 +317,179 @@ index 4284977..987b4a3 100644
 @@ -24 +24 @@ fn project_dirs() -> Option<ProjectDirs> {
 -                return ProjectDirs::from_path(parent.join("lapce-data"));
 +                return ProjectDirs::from_path(parent.join("codestrike-data"));
+diff --git a/lapce-proxy/src/buffer.rs b/lapce-proxy/src/buffer.rs
+index d49951f..f5717ab 100644
+--- a/lapce-proxy/src/buffer.rs
++++ b/lapce-proxy/src/buffer.rs
+@@ -5,0 +6 @@
++    hash::Hasher,
+@@ -7,0 +9 @@
++    sync::atomic::{AtomicU64, Ordering},
+@@ -26,0 +29 @@ pub struct Buffer {
++    disk_fingerprint: Option<u64>,
+@@ -31,2 +34,7 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+-        let (s, read_only) = match load_file(&path) {
+-            Ok(s) => (s, false),
++        let loaded = (|| -> Result<(String, u64)> {
++            let bytes = fs::read(&path)?;
++            let fingerprint = fingerprint(&bytes);
++            Ok((String::from_utf8(bytes)?, fingerprint))
++        })();
++        let (s, read_only, disk_fingerprint) = match loaded {
++            Ok((s, fingerprint)) => (s, false, Some(fingerprint)),
+@@ -38 +46 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+-                            ("Permission Denied".to_string(), true)
++                            ("Permission Denied".to_string(), true, None)
+@@ -40 +48 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+-                        ErrorKind::NotFound => ("".to_string(), false),
++                        ErrorKind::NotFound => ("".to_string(), false, None),
+@@ -42 +50 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+-                            ("File too big (out of memory)".to_string(), false)
++                            ("File too big (out of memory)".to_string(), true, None)
+@@ -44 +52 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+-                        _ => (format!("Not supported: {err}"), true),
++                        _ => (format!("Not supported: {err}"), true, None),
+@@ -46 +54 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
+-                    None => (format!("Not supported: {err}"), true),
++                    None => (format!("Not supported: {err}"), true, None),
+@@ -61,0 +70 @@ pub fn new(id: BufferId, path: PathBuf) -> Buffer {
++            disk_fingerprint,
+@@ -86,0 +96,5 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
++        if fingerprint_file(&path)? != self.disk_fingerprint {
++            return Err(anyhow!(
++                "file changed on disk; save a copy or reload before overwriting"
++            ));
++        }
+@@ -89,2 +103,2 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+-        if !new_file {
+-            fs::copy(&path, bak_file_path)?;
++        if bak_file_path.exists() {
++            return Err(anyhow!("existing save backup must be recovered first"));
+@@ -99,8 +113,16 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+-        let mut f = fs::OpenOptions::new()
+-            .create(true)
+-            .write(true)
+-            .truncate(true)
+-            .open(&path)?;
+-        for chunk in self.rope.iter_chunks(..self.rope.len()) {
+-            f.write_all(chunk.as_bytes())?;
+-        }
++        static SAVE_ID: AtomicU64 = AtomicU64::new(0);
++        let temp_path = path.parent().unwrap_or(Path::new(".")).join(format!(
++            ".codestrike-save-{}-{}.tmp",
++            std::process::id(),
++            SAVE_ID.fetch_add(1, Ordering::Relaxed)
++        ));
++        let result = (|| -> Result<()> {
++            let mut f = fs::OpenOptions::new()
++                .create_new(true)
++                .write(true)
++                .open(&temp_path)?;
++            for chunk in self.rope.iter_chunks(..self.rope.len()) {
++                f.write_all(chunk.as_bytes())?;
++            }
++            f.sync_all()?;
++            drop(f);
+@@ -108,3 +130,23 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+-        self.mod_time = get_mod_time(&path);
+-        if !new_file {
+-            fs::remove_file(bak_file_path)?;
++            if fingerprint_file(&path)? != self.disk_fingerprint {
++                return Err(anyhow!(
++                    "file changed during save; original left untouched"
++                ));
++            }
++            if !new_file {
++                fs::rename(&path, bak_file_path)?;
++            }
++            if let Err(err) = fs::rename(&temp_path, &path) {
++                if !new_file {
++                    let _ = fs::rename(bak_file_path, &path);
++                }
++                return Err(err.into());
++            }
++            self.disk_fingerprint = fingerprint_file(&path)?;
++            self.mod_time = get_mod_time(&path);
++            if !new_file {
++                fs::remove_file(bak_file_path)?;
++            }
++            Ok(())
++        })();
++        if result.is_err() {
++            let _ = fs::remove_file(&temp_path);
+@@ -112,2 +154 @@ pub fn save(&mut self, rev: u64, create_parents: bool) -> Result<()> {
+-
+-        Ok(())
++        result
+@@ -350,0 +392,71 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
++
++fn fingerprint(bytes: &[u8]) -> u64 {
++    let mut hasher = std::collections::hash_map::DefaultHasher::new();
++    hasher.write(bytes);
++    hasher.finish()
++}
++
++fn fingerprint_file(path: &Path) -> Result<Option<u64>> {
++    match fs::read(path) {
++        Ok(bytes) => Ok(Some(fingerprint(&bytes))),
++        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
++        Err(err) => Err(err.into()),
++    }
++}
++
++#[cfg(test)]
++mod codestrike_save_tests {
++    use super::*;
++
++    fn fixture() -> (PathBuf, PathBuf) {
++        static FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
++        let dir = std::env::temp_dir().join(format!(
++            "codestrike-save-test-{}-{}",
++            std::process::id(),
++            FIXTURE_ID.fetch_add(1, Ordering::Relaxed)
++        ));
++        fs::create_dir(&dir).unwrap();
++        let path = dir.join("main.rs");
++        fs::write(&path, "original\n").unwrap();
++        (dir, path)
++    }
++
++    #[test]
++    fn saves_and_reopens_without_a_leftover_backup() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        buffer.rope = Rope::from("edited\n");
++        buffer.save(buffer.rev, false).unwrap();
++        assert_eq!(fs::read_to_string(&path).unwrap(), "edited\n");
++        assert_eq!(
++            Buffer::new(BufferId::next(), path).rope.to_string(),
++            "edited\n"
++        );
++        assert!(!dir.join("main.rsbak").exists());
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn refuses_to_overwrite_an_external_change() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        buffer.rope = Rope::from("our edit\n");
++        fs::write(&path, "external edit\n").unwrap();
++        assert!(buffer.save(buffer.rev, false).is_err());
++        assert_eq!(fs::read_to_string(&path).unwrap(), "external edit\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++
++    #[test]
++    fn refuses_to_replace_an_existing_backup() {
++        let (dir, path) = fixture();
++        let mut buffer = Buffer::new(BufferId::next(), path.clone());
++        buffer.rope = Rope::from("our edit\n");
++        let backup = dir.join("main.rsbak");
++        fs::write(&backup, "keep this backup\n").unwrap();
++        assert!(buffer.save(buffer.rev, false).is_err());
++        assert_eq!(fs::read_to_string(&path).unwrap(), "original\n");
++        assert_eq!(fs::read_to_string(&backup).unwrap(), "keep this backup\n");
++        fs::remove_dir_all(dir).unwrap();
++    }
++}

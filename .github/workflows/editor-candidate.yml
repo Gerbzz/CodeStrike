@@ -51,11 +51,16 @@ jobs:
       - name: Compile Windows editor
         shell: pwsh
         run: cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
+      - name: Test save and conflict protection
+        shell: pwsh
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_save_tests --lib
       - name: Smoke test candidate executable
         shell: pwsh
         run: |
-          $exe = 'editor/lapce/target/debug/lapce.exe'
-          if (-not (Test-Path -LiteralPath $exe)) { throw 'Editor executable was not produced.' }
+          $built = 'editor/lapce/target/debug/lapce.exe'
+          $exe = 'editor/lapce/target/debug/CodeStrike.exe'
+          if (-not (Test-Path -LiteralPath $built)) { throw 'Editor executable was not produced.' }
+          Copy-Item -LiteralPath $built -Destination $exe
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw 'Editor --version failed.' }
           & $exe --help | Select-Object -First 16
@@ -64,4 +69,6 @@ jobs:
           "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
       - name: Launch Windows editor and capture startup evidence
         shell: pwsh
-        run: .\scripts\probe-windows-editor.ps1
+        run: |
+          .\scripts\probe-windows-editor.ps1 -Startup
+          .\scripts\probe-windows-editor.ps1

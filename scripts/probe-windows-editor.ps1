@@ -1,13 +1,15 @@
+param([switch]$Startup)
+
 $ErrorActionPreference = 'Stop'
 
-$exe = (Resolve-Path 'editor/lapce/target/debug/lapce.exe').Path
+$exe = (Resolve-Path 'editor/lapce/target/debug/CodeStrike.exe').Path
 $fixture = Join-Path $env:RUNNER_TEMP 'codestrike-editor-fixture'
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
 [System.IO.File]::WriteAllText((Join-Path $fixture 'main.rs'), ('fn main() { println!("CodeStrike fixture"); }' + "`n"))
 [System.IO.File]::WriteAllText((Join-Path $fixture 'notes.txt'), "alpha`nbeta`n")
 
 $start = [System.Diagnostics.ProcessStartInfo]::new($exe)
-$start.Arguments = '--new "' + $fixture + '"'
+$start.Arguments = if ($Startup) { '--wait --new' } else { '--wait --new "' + $fixture + '"' }
 $start.UseShellExecute = $false
 $editor = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $editor) { throw 'Windows did not start the editor process.' }
@@ -27,7 +29,8 @@ try {
     if ($editor.MainWindowTitle -notlike '*CodeStrike*') {
         throw "Unexpected window title: $($editor.MainWindowTitle)"
     }
-    "CODESTRIKE_GUI_PROBE=window-ready; title=$($editor.MainWindowTitle)"
+    $mode = if ($Startup) { 'startup' } else { 'folder' }
+    "CODESTRIKE_GUI_PROBE=$mode-window-ready; title=$($editor.MainWindowTitle)"
 
     Start-Sleep -Seconds 3
     Add-Type -AssemblyName System.Windows.Forms
@@ -50,7 +53,7 @@ try {
                     [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
                 $thumbnail.Save($stream, $codec, $parameters)
                 if ($stream.Length -gt 350KB) { throw 'Screenshot exceeded the bounded log size.' }
-                "CODESTRIKE_SCREENSHOT_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
+                "CODESTRIKE_SCREENSHOT_${mode}_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
             } finally { $stream.Dispose() }
         } finally { $thumbnail.Dispose() }
     } finally {
