@@ -81,6 +81,19 @@ function Click-Editor([System.Diagnostics.Process]$process) {
     [CodeStrikeAcceptanceWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
 }
 
+function Click-WindowPoint([System.Diagnostics.Process]$process, [double]$relativeX, [double]$relativeY) {
+    Focus-Candidate $process
+    $rect = [CodeStrikeAcceptanceWindow+Rect]::new()
+    if (-not [CodeStrikeAcceptanceWindow]::GetWindowRect($process.MainWindowHandle, [ref]$rect)) {
+        throw 'Could not locate editor window for a UI action.'
+    }
+    $x = $rect.Left + [int](($rect.Right - $rect.Left) * $relativeX)
+    $y = $rect.Top + [int](($rect.Bottom - $rect.Top) * $relativeY)
+    [CodeStrikeAcceptanceWindow]::SetCursorPos($x, $y) | Out-Null
+    [CodeStrikeAcceptanceWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+    [CodeStrikeAcceptanceWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+}
+
 function Capture-Candidate([string]$name) {
     $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
@@ -182,12 +195,40 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 3
         Capture-Candidate 'workspace_search'
+        Click-WindowPoint $editor 0.54 0.70
+        Start-Sleep -Seconds 1
+        [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+        [System.Windows.Forms.SendKeys]::SendWait('codestrike_search_navigation')
+        [System.Windows.Forms.SendKeys]::SendWait('^s')
+        if (@(Find-MarkerPath @($other) 'codestrike_search_navigation').Count -ne 1) {
+            Capture-Candidate 'navigation_failure'
+            throw 'Clicking the workspace search hit did not open other.rs for editing.'
+        }
+        Capture-Candidate 'workspace_hit_opened'
+        Click-WindowPoint $editor 0.47 0.08
         Click-Editor $editor
         [System.Windows.Forms.SendKeys]::SendWait('^f')
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 2
         Capture-Candidate 'file_find'
-        'CODESTRIKE_ACCEPTANCE_SEARCH=visual-inspection-pending'
+        Click-WindowPoint $editor 0.45 0.18
+        Start-Sleep -Milliseconds 500
+        Click-WindowPoint $editor 0.55 0.23
+        [System.Windows.Forms.SendKeys]::SendWait('codestrike_replaced')
+        Capture-Candidate 'replace_ready'
+        Click-WindowPoint $editor 0.79 0.23
+        [System.Windows.Forms.SendKeys]::SendWait('^s')
+        Start-Sleep -Seconds 2
+        $replaced = [System.IO.File]::ReadAllText($path)
+        $otherContent = [System.IO.File]::ReadAllText($other)
+        if ($replaced.Contains($needle) -or
+            ($replaced.Split([string[]]@('codestrike_replaced'), [StringSplitOptions]::None).Count - 1) -ne 2 -or
+            -not $otherContent.Contains($needle)) {
+            Capture-Candidate 'replace_failure'
+            throw 'Per-file Replace All did not change exactly two matches in main.rs while leaving other.rs intact.'
+        }
+        Capture-Candidate 'replace_applied'
+        'CODESTRIKE_ACCEPTANCE_SEARCH_NAVIGATION_AND_REPLACE=passed'
     } elseif ($Scenario -eq 'Conflict') {
         $path = Join-Path $fixture 'conflict.rs'
         [System.IO.File]::WriteAllText($path, "// original`n")
