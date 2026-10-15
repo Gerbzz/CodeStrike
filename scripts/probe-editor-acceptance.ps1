@@ -1,4 +1,4 @@
-param([ValidateSet('Tabs', 'Search', 'Conflict', 'Encoding', 'WorkspaceReplace')][string]$Scenario = 'Tabs')
+param([ValidateSet('Tabs', 'Search', 'Conflict', 'CleanReload', 'Encoding', 'WorkspaceReplace')][string]$Scenario = 'Tabs')
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -407,6 +407,25 @@ try {
             $editor = $null
             "CODESTRIKE_ACCEPTANCE_ENCODING=$($case.Name);bytes-preserved"
         }
+    } elseif ($Scenario -eq 'CleanReload') {
+        $path = Join-Path $fixture 'clean_reload.rs'
+        [System.IO.File]::WriteAllText($path, "// original`n")
+        $editor = Start-Candidate @($fixture, $path)
+        $external = "// external_version`n"
+        [System.IO.File]::WriteAllText($path, $external)
+        Start-Sleep -Seconds 3
+        Capture-Candidate 'clean_reload_external'
+        Click-Editor $editor
+        [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+        [System.Windows.Forms.SendKeys]::SendWait('// local_after_reload')
+        [System.Windows.Forms.SendKeys]::SendWait('^s')
+        $expected = [System.Text.Encoding]::UTF8.GetBytes($external + '// local_after_reload')
+        if (-not (Wait-FileBytes $path $expected)) {
+            Capture-Candidate 'clean_reload_save_failure'
+            throw 'Save after a clean external reload did not preserve the new disk text and local edit.'
+        }
+        Capture-Candidate 'clean_reload_saved'
+        'CODESTRIKE_ACCEPTANCE_CLEAN_RELOAD=external-reload-and-save-passed'
     } elseif ($Scenario -eq 'Conflict') {
         $path = Join-Path $fixture 'conflict.rs'
         [System.IO.File]::WriteAllText($path, "// original`n")

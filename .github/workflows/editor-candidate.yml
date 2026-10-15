@@ -108,3 +108,7 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario Conflict
+      - name: Test clean external reload followed by save
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario CleanReload
