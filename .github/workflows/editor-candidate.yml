@@ -10,6 +10,7 @@ on:
       - editor/**
       - scripts/prepare-lapce.ps1
       - scripts/probe-windows-editor.ps1
+      - scripts/probe-editor-acceptance.ps1
 
 permissions:
   contents: read
@@ -76,3 +77,7 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_save_tests --lib
+      - name: Test three tabs and reopen session
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Tabs
