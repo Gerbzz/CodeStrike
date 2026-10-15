@@ -212,16 +212,15 @@ index 1070577..b966ed8 100644
 -                    let path = path.join("./.lapce/settings.toml");
 +                    let path = path.join("./.codestrike/settings.toml");
 diff --git a/lapce-app/src/doc.rs b/lapce-app/src/doc.rs
-index b20d13a..e32fcc5 100644
+index b20d13a..59f5d24 100644
 --- a/lapce-app/src/doc.rs
 +++ b/lapce-app/src/doc.rs
 @@ -76 +76,2 @@
 -    command::{CommandKind, LapceCommand},
 +    alert::AlertButton,
 +    command::{CommandKind, InternalCommand, LapceCommand},
-@@ -1405,0 +1407 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
-+            let internal_command = self.common.internal_command;
-@@ -1407,7 +1409,9 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+@@ -1406,8 +1407,13 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+-            let send = create_ext_action(self.scope, move |result| {
 -                if let Ok(ProxyResponse::SaveResponse {}) = result {
 -                    let current_rev = buffer.with_untracked(|buffer| buffer.rev());
 -                    if current_rev == rev {
@@ -229,7 +228,11 @@ index b20d13a..e32fcc5 100644
 -                            buffer.set_pristine();
 -                        });
 -                        after_action();
-+                match result {
++            let internal_command = self.common.internal_command;
++            let send = create_ext_action(
++                self.scope,
++                move |result: Result<ProxyResponse, lapce_rpc::RpcError>| {
++                    match result {
 +                    Ok(ProxyResponse::SaveResponse {}) => {
 +                        let current_rev = buffer.with_untracked(|buffer| buffer.rev());
 +                        if current_rev == rev {
@@ -238,10 +241,10 @@ index b20d13a..e32fcc5 100644
 +                            });
 +                            after_action();
 +                        }
-@@ -1414,0 +1419,11 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+@@ -1414,0 +1421,11 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
 +                    Err(err) => internal_command.send(InternalCommand::ShowAlert {
 +                        title: "CodeStrike could not save this file".to_string(),
-+                        msg: format!("{}. Your editor buffer is still open; save a copy or resolve the conflict before retrying.", err.message),
++                        msg: format!("{}. Your unsaved edits remain open. Check the file and any backup before retrying.", err.message),
 +                        buttons: vec![AlertButton {
 +                            text: "Keep editing".to_string(),
 +                            action: Rc::new(move || {
@@ -250,6 +253,10 @@ index b20d13a..e32fcc5 100644
 +                        }],
 +                    }),
 +                    _ => {}
+@@ -1416 +1433,2 @@ pub fn save(&self, after_action: impl FnOnce() + 'static) {
+-            });
++                },
++            );
 diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
 index fb85013..c7ac84f 100644
 --- a/lapce-app/src/palette.rs

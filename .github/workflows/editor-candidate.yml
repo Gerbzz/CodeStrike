@@ -61,6 +61,7 @@ jobs:
           $exe = 'editor/lapce/target/debug/CodeStrike.exe'
           if (-not (Test-Path -LiteralPath $built)) { throw 'Editor executable was not produced.' }
           Copy-Item -LiteralPath $built -Destination $exe
+          "Candidate executable size: {0:N2} MiB" -f ((Get-Item -LiteralPath $exe).Length / 1MB)
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw 'Editor --version failed.' }
           & $exe --help | Select-Object -First 16

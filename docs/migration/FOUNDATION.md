@@ -81,7 +81,8 @@ end-to-end product test.
   license for combined files.
 - Do not import Lapce or other logos as CodeStrike marks. Keep approved
   CodeStrike/PWDS artwork in place until an asset-by-asset branding decision.
-- Lapce is a multi-crate Rust workspace with pinned Git Floem dependencies
+- Lapce is a four-crate Rust workspace with 752 package entries in its pinned
+  lockfile, including Git Floem dependencies
   ([workspace manifest](https://github.com/lapce/lapce/blob/master/Cargo.toml)).
   Source checkout and Rust build can use far more disk than the release
   download. No local build, dependency download, or broad clone while the
@@ -95,7 +96,9 @@ end-to-end product test.
   in 5m48s, with 27.84 GiB free on the runner afterward. The
   [expanded startup/settings patch](https://github.com/Gerbzz/CodeStrike/actions/runs/38714317402)
   compiled in 7m51s and passed CLI smoke tests; its GUI probe watched the
-  short-lived launcher, so that step must be rerun with `--wait`. The save
-  safety patch and focused tests are part of the next hosted run.
+  short-lived launcher, so that step must be rerun with `--wait`. The
+  [first save patch run](https://github.com/Gerbzz/CodeStrike/actions/runs/38715669757)
+  found a callback type-inference error before tests; the patch now names the
+  RPC result type explicitly.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.

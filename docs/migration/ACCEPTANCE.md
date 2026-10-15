@@ -37,4 +37,7 @@ patch also [compiled and passed CLI smoke tests](https://github.com/Gerbzz/CodeS
 in 7m51s. Its first GUI probe watched the short-lived launcher rather than
 the editor process, so that step failed without establishing a GUI result.
 The probe now invokes `--wait` and must be rerun. No GUI feature acceptance
-or release has been recorded yet. Do not advertise pending rows.
+or release has been recorded yet. The following
+[save patch run](https://github.com/Gerbzz/CodeStrike/actions/runs/38715669757)
+stopped at one Rust callback type-inference error before its tests; the draft
+now supplies the explicit RPC result type. Do not advertise pending rows.
