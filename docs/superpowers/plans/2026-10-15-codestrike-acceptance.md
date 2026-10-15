@@ -77,5 +77,5 @@
 **Interface:** Each claimed pass links to a hosted run and image; every remaining limitation stays explicit.
 
 - [x] Review all screenshots and CI logs against assertions, including the passed final Windows run `38735350052`.
-- [ ] Update docs, hashes, and draft PR; verify baseline and disk floor.
-- [ ] Leave draft PR unmerged and report exact commit/run links.
+- [x] Update docs, hashes, and draft PR #1; verify the original baseline and 20 GiB disk floor.
+- [x] Leave draft PR #1 unmerged and report exact commit/run links.
