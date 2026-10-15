@@ -423,7 +423,15 @@ try {
         $expected = [System.Text.Encoding]::UTF8.GetBytes($external + '// local_after_reload')
         if (-not (Wait-FileBytes $path $expected)) {
             Capture-Candidate 'clean_reload_save_failure'
-            $logs = @(Get-ChildItem -LiteralPath $localData -Recurse -File -Filter 'lapce*.log' -ErrorAction SilentlyContinue)
+            $logRoots = @(
+                $localData,
+                (Join-Path $env:LOCALAPPDATA 'ArtCraft\CodeStrike'),
+                (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ArtCraft\CodeStrike')
+            ) | Select-Object -Unique
+            $logs = @($logRoots | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object {
+                Get-ChildItem -LiteralPath $_ -Recurse -File -Filter 'lapce*.log' -ErrorAction SilentlyContinue
+            })
+            "CODESTRIKE_CLEAN_RELOAD_LOG_COUNT=$($logs.Count)"
             foreach ($log in $logs) {
                 "CODESTRIKE_CLEAN_RELOAD_LOG=$($log.FullName)"
                 Get-Content -LiteralPath $log.FullName | Select-String -Pattern 'CodeStrike watcher|open_file_changed|Clean file reload|Failed to re-read' | Select-Object -Last 60 | ForEach-Object { $_.Line.Substring(0, [Math]::Min($_.Line.Length, 350)) }
