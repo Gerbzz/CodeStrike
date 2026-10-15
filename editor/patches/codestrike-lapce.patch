@@ -1,3 +1,9 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index d0a94912..11877d80 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3126,0 +3127 @@ dependencies = [
++ "tempfile",
 diff --git a/lapce-app/Cargo.toml b/lapce-app/Cargo.toml
 index c0f780dd..6f6325ba 100644
 --- a/lapce-app/Cargo.toml
