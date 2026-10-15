@@ -20,9 +20,9 @@ if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Lapce submodule has unreviewed loca
 $actualLogo = (Get-FileHash -LiteralPath $logo -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actualLogo -ne $logoSha256) { throw 'CodeStrike logo differs from the approved provenance hash.' }
 
-& git -C $source apply --check -- $patch
+& git -C $source apply --check --unidiff-zero -- $patch
 if ($LASTEXITCODE -ne 0) { throw 'Migration patch does not apply cleanly to pinned Lapce.' }
-& git -C $source apply -- $patch
+& git -C $source apply --unidiff-zero -- $patch
 if ($LASTEXITCODE -ne 0) { throw 'Migration patch failed.' }
 & git -C $source diff --check
 if ($LASTEXITCODE -ne 0) { throw 'Migration patch introduced whitespace errors.' }

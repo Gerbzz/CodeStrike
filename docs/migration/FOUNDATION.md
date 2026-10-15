@@ -1,9 +1,13 @@
 # CodeStrike editor foundation decision - 2026-10-15
 
-Status: **draft migration decision, not a shipped editor**. This remote draft starts at
+Status: **draft pinned source migration, not a shipped editor**. This remote draft starts at
 CodeStrike commit `f340189b21e5a6b4002f5bdbbea5d8a69a67d672`. The existing
 Rust source, tests, README, settings, and approved branding assets remain in
-place. No upstream editor code or artwork has been copied into this branch.
+place. `editor/lapce` is a submodule pinned to source commit
+`b012cef466741528f338879fa708355217fc40bd` (v0.4.6); the CodeStrike delta
+is `editor/patches/codestrike-lapce.patch`, applied by `scripts/prepare-lapce.ps1`.
+The submodule preserves upstream history, license, and lockfile. The patch uses
+the existing approved CodeStrike PNG rather than replacing artwork.
 
 ## Product contract
 
@@ -30,9 +34,10 @@ foundation choice.
 | Zed | [Source README](https://github.com/zed-industries/zed) confirms Windows and primarily GPL-3.0-or-later source with marked Apache components; [Windows docs](https://zed.dev/docs/windows) give installation and GPU requirements. [Workspace source](https://raw.githubusercontent.com/zed-industries/zed/main/crates/workspace/src/workspace.rs) has save-all and multi-pane commands. | More complete editor today, but a branded distributed fork would inherit GPL obligations and a broad services/extension surface. This is a product/licensing choice, not a claim that Zed lacks the required UX. |
 | Helix | [Source README](https://github.com/helix-editor/helix) documents MPL-2.0, tree-sitter, LSP and a primarily terminal/modal interaction model. | Excellent editing core, but a GUI matching the requested Windows workflow would be a separate major product. |
 
-Lapce's code is not yet integrated, so the branch does **not** claim Lapce's
-features as CodeStrike features. The selection is based on inspected source
-boundaries and license/platform evidence, not an end-to-end product test.
+Pinned Lapce source and the patch are in the draft branch. This does **not**
+establish the listed features as tested CodeStrike features. The selection is
+based on inspected source boundaries and license/platform evidence, not an
+end-to-end product test.
 
 ## Migration layout and sequence
 
@@ -40,22 +45,24 @@ boundaries and license/platform evidence, not an end-to-end product test.
    after the local source snapshot `025b50b`. The intervening changes only
    modified README and added approved branding/screenshots, according to the
    GitHub commit comparison. Recheck `main` before any later integration.
-2. Bring the exact Lapce `v0.4.6` source into `editor/lapce/` on this draft
-   branch with Git provenance and its `LICENSE`/notices intact. Verify the tag's
-   full commit ID and dependency lockfile. Keep CodeStrike's current root
-   source and tests intact; use an explicit app entry point for the new editor.
-3. Before the first candidate launch, remove or gate known automatic network
+2. The exact Lapce `v0.4.6` source is pinned in `editor/lapce/` with its
+   `LICENSE`/notices and lockfile intact. The root CodeStrike app remains the
+   default launcher; the candidate entry point is Lapce's desktop binary.
+3. The patch gates known automatic network
    calls: `PluginData::new` [loads the remote plugin catalogue immediately](https://raw.githubusercontent.com/lapce/lapce/v0.4.6/lapce-app/src/plugin.rs),
    and `app.rs` [starts a grammar/query release fetch](https://raw.githubusercontent.com/lapce/lapce/v0.4.6/lapce-app/src/app.rs)
-   plus a feature-gated updater. Review config directories, telemetry and
-   language-server launch paths as well. Default CodeStrike to local files and
+   plus a feature-gated updater. The patch also changes the global settings
+   namespace to `com/ArtCraft/CodeStrike` and workspace configuration/run files
+   to `.codestrike/`. Continue auditing config, telemetry and
+   language-server launch paths. Default CodeStrike to local files and
    explicitly chosen local language tools. Do not add hosted accounts,
    credentials, or automatic network services as part of branding.
-4. Add a thin CodeStrike layer for startup/About, title, approved assets, and
-   settings namespace. Preserve existing settings by migration/copy with a
-   reversible backup and tested rollback; do not overwrite Lapce or existing
-   CodeStrike settings in place. Keep brand out of the working top-left chrome
-   unless user testing shows a clear purpose.
+4. The patch brands title, CLI, a no-workspace startup surface, and About,
+   embedding the approved logo in startup/About. Startup interaction and
+   visual quality still need a Windows GUI test. The new namespace is separate;
+   settings migration/copy with a reversible backup
+   and tested rollback remains pending. Keep brand out of working chrome unless
+   user testing shows a clear purpose.
 5. Port CodeStrike's safe-save/external-change and recovery behavior only
    where Lapce is missing it. Use focused adapters and tests; do not replace
    Lapce's rope, tabs, palette, explorer, search, or LSP with the old text box.
@@ -79,9 +86,11 @@ boundaries and license/platform evidence, not an end-to-end product test.
   office machine's 20 GiB free-space floor and SkinStrike build slot apply.
 - [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
   states standard hosted runners are free for public repositories; larger
-  runners are charged. A future public draft can use a manual, bounded
-  standard Windows runner with no artifacts/cache and a hard timeout, after
-  confirming the repository visibility and account policy. No hosted run has
-  been started here.
+  runners are charged. Public draft PR #1 has a `windows-latest` workflow with
+  a 45-minute limit, no cache/artifact upload, and read-only repository token.
+  The first run found and fixed Windows CRLF patch application. The second run
+  [compiled and passed CLI smoke tests](https://github.com/Gerbzz/CodeStrike/actions/runs/38712789811)
+  in 5m48s, with 27.84 GiB free on the runner afterward. A subsequent run
+  must verify the expanded startup/settings patch and GUI behavior.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.

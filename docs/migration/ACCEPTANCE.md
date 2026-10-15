@@ -16,6 +16,12 @@ run method, fixture, result, and screenshot/log where useful for each run.
 | Startup/About and accessibility | Launch without a workspace, inspect About, keyboard navigate file/search/save dialogs at 100% and 200% scale. | Approved name/logo and attribution appear; working layout prioritizes code; primary tasks work by keyboard and visible focus. |
 | Distribution | Install on clean Windows VM without dev dependencies; inspect package notices and disk use. | App launches and saves/reopens; bundled terms match exact contents; size and installed footprint recorded. |
 
-Baseline source-only checks completed on 2026-10-15: CodeStrike desktop
-inspection and Lapce/Zed/Helix source/licensing/platform review. There was no
-Lapce-based build, GUI test, release, or CI run. Do not advertise pending rows.
+Baseline checks completed on 2026-10-15: CodeStrike desktop inspection,
+Lapce/Zed/Helix source/licensing/platform review, pinned submodule/approved-logo
+verification, patch application, `cargo fmt --check`, and root-source diff
+inspection. The first hosted Windows run failed on CRLF patch application;
+the workflow now sets `core.autocrlf=false` before checkout. The second hosted
+run [compiled the patched Windows binary and passed `--version`/`--help`](https://github.com/Gerbzz/CodeStrike/actions/runs/38712789811):
+`CodeStrike 0.4.6+Debug.b012cef`, in 5m48s. This was the earlier patch;
+the expanded startup/settings patch still needs CI. No GUI test, release,
+or feature acceptance has been recorded yet. Do not advertise pending rows.

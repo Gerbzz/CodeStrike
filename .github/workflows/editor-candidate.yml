@@ -9,6 +9,7 @@ on:
       - .gitmodules
       - editor/**
       - scripts/prepare-lapce.ps1
+      - scripts/probe-windows-editor.ps1
 
 permissions:
   contents: read
@@ -61,3 +62,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Editor --help failed.' }
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
           "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
+      - name: Launch Windows editor and capture startup evidence
+        shell: pwsh
+        run: .\scripts\probe-windows-editor.ps1

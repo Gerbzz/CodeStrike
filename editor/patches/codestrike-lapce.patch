@@ -2,50 +2,27 @@ diff --git a/lapce-app/Cargo.toml b/lapce-app/Cargo.toml
 index c0f780d..6f6325b 100644
 --- a/lapce-app/Cargo.toml
 +++ b/lapce-app/Cargo.toml
-@@ -72,10 +72,12 @@ workspace = true
- features  = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"]
- 
- [features]
+@@ -75 +75 @@ features  = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndM
 -default        = ["updater", "vendored-fonts"]
 +default        = ["vendored-fonts"]
- portable       = ["lapce-core/portable"]
- updater        = []
- vendored-fonts = []
+@@ -78,0 +79,2 @@ vendored-fonts = []
 +codestrike-online-grammars = []
 +codestrike-online-catalog = []
- 
- [dev-dependencies]
- criterion = "0.5"
 diff --git a/lapce-app/src/about.rs b/lapce-app/src/about.rs
 index 75f9281..169e703 100644
 --- a/lapce-app/src/about.rs
 +++ b/lapce-app/src/about.rs
-@@ -6,7 +6,7 @@
-     keyboard::Modifiers,
-     reactive::{RwSignal, Scope, SignalGet, SignalUpdate},
-     style::{CursorStyle, Display, Position},
+@@ -9 +9 @@
 -    views::{Decorators, container, label, stack, svg},
 +    views::{Decorators, container, img, label, stack},
- };
- use lapce_core::{command::FocusCommand, meta::VERSION, mode::Mode};
- 
-@@ -21,10 +21,8 @@
- struct AboutUri {}
- 
- impl AboutUri {
+@@ -24,4 +24,2 @@ impl AboutUri {
 -    const LAPCE: &'static str = "https://lapce.dev";
 -    const GITHUB: &'static str = "https://github.com/lapce/lapce";
 -    const MATRIX: &'static str = "https://matrix.to/#/#lapce-editor:matrix.org";
 -    const DISCORD: &'static str = "https://discord.gg/n8tGJ6Rn6D";
 +    const CODESTRIKE: &'static str = "https://github.com/Gerbzz/CodeStrike";
 +    const LAPCE: &'static str = "https://github.com/lapce/lapce";
-     const CODICONS: &'static str = "https://github.com/microsoft/vscode-codicons";
- }
- 
-@@ -101,43 +99,30 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
- 
-     exclusive_popup(window_tab_data, about_data.visible, move || {
-         stack((
+@@ -104,5 +102,5 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -            svg(move || (config.get()).logo_svg()).style(move |s| {
 -                s.size(logo_size, logo_size)
 -                    .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
@@ -56,10 +33,7 @@ index 75f9281..169e703 100644
 +            })
 +            .style(move |s| s.size(logo_size, logo_size)),
 +            label(|| "CodeStrike".to_string()).style(move |s| {
-                 s.font_bold()
-                     .margin_top(10.0)
-                     .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
-             }),
+@@ -113,4 +111,5 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -            label(|| format!("Version: {}", VERSION)).style(move |s| {
 -                s.margin_top(10.0)
 -                    .color(config.get().color(LapceColor::EDITOR_DIM))
@@ -69,16 +43,12 @@ index 75f9281..169e703 100644
 +                    s.margin_top(10.0)
 +                        .color(config.get().color(LapceColor::EDITOR_DIM))
 +                }),
-             web_link(
+@@ -118,2 +117,2 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -                || "Website".to_string(),
 -                || AboutUri::LAPCE.to_string(),
 +                || "CodeStrike source".to_string(),
 +                || AboutUri::CODESTRIKE.to_string(),
-                 move || config.get().color(LapceColor::EDITOR_LINK),
-                 internal_command,
-             )
-             .style(|s| s.margin_top(20.0)),
-             web_link(
+@@ -125,16 +124,2 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -                || "GitHub".to_string(),
 -                || AboutUri::GITHUB.to_string(),
 -                move || config.get().color(LapceColor::EDITOR_LINK),
@@ -97,175 +67,205 @@ index 75f9281..169e703 100644
 -                || AboutUri::MATRIX.to_string(),
 +                || "Editor foundation: Lapce (Apache-2.0)".to_string(),
 +                || AboutUri::LAPCE.to_string(),
-                 move || config.get().color(LapceColor::EDITOR_LINK),
-                 internal_command,
-             )
 diff --git a/lapce-app/src/app.rs b/lapce-app/src/app.rs
-index d3cbc52..fb0965a 100644
+index d3cbc52..38584b6 100644
 --- a/lapce-app/src/app.rs
 +++ b/lapce-app/src/app.rs
-@@ -115,7 +115,7 @@
- mod logging;
- 
- #[derive(Parser)]
+@@ -47 +47 @@
+-        empty, label, rich_text,
++        empty, img, label, rich_text,
+@@ -118 +118 @@
 -#[clap(name = "Lapce")]
 +#[clap(name = "CodeStrike")]
- #[clap(version=meta::VERSION)]
- #[derive(Debug)]
- struct Cli {
-@@ -205,7 +205,7 @@ fn active_window(&self) -> Option<WindowData> {
-     fn default_window_config(&self) -> WindowConfig {
-         WindowConfig::default()
-             .apply_default_theme(false)
+@@ -122 +122 @@ struct Cli {
+-    /// Launch new window even if Lapce is already running
++    /// Launch a new window even if CodeStrike is already running
+@@ -208 +208 @@ fn default_window_config(&self) -> WindowConfig {
 -            .title("Lapce")
 +            .title("CodeStrike")
-     }
- 
-     pub fn new_window(&self, folder: Option<PathBuf>) {
-@@ -3674,8 +3674,8 @@ fn window(window_data: WindowData) -> impl View {
-             .or_else(|| window_tabs.last())
-             .and_then(|(_, window_tab)| window_tab.workspace.display());
-         match workspace {
+@@ -2056,0 +2057,82 @@ fn main_split(window_tab_data: Rc<WindowTabData>) -> impl View {
++fn codestrike_start(window_tab_data: Rc<WindowTabData>) -> impl View {
++    let config = window_tab_data.common.config;
++    let workbench_command = window_tab_data.common.workbench_command;
++    let editor_tabs = window_tab_data.main_split.editor_tabs;
++    let no_workspace = window_tab_data.workspace.path.is_none();
++
++    container(
++        stack((
++            img(|| {
++                include_bytes!("../../../../assets/branding/CodeStrike.png").to_vec()
++            })
++            .style(|s| s.size(112.0, 112.0)),
++            label(|| "CodeStrike".to_string()).style(move |s| {
++                s.font_size(28.0)
++                    .font_bold()
++                    .margin_top(20.0)
++                    .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
++            }),
++            label(|| "Open a project or file to start editing".to_string()).style(
++                move |s| {
++                    s.margin_top(12.0)
++                        .color(config.get().color(LapceColor::EDITOR_DIM))
++                },
++            ),
++            stack((
++                label(|| "Open folder".to_string())
++                    .on_click_stop(move |_| {
++                        workbench_command.send(LapceWorkbenchCommand::OpenFolder);
++                    })
++                    .style(move |s| {
++                        let config = config.get();
++                        s.padding_vert(10.0)
++                            .padding_horiz(18.0)
++                            .border_radius(6.0)
++                            .background(
++                                config.color(
++                                    LapceColor::LAPCE_BUTTON_PRIMARY_BACKGROUND,
++                                ),
++                            )
++                            .color(
++                                config.color(
++                                    LapceColor::LAPCE_BUTTON_PRIMARY_FOREGROUND,
++                                ),
++                            )
++                            .cursor(CursorStyle::Pointer)
++                    }),
++                label(|| "Open file".to_string())
++                    .on_click_stop(move |_| {
++                        workbench_command.send(LapceWorkbenchCommand::OpenFile);
++                    })
++                    .style(move |s| {
++                        let config = config.get();
++                        s.padding_vert(10.0)
++                            .padding_horiz(18.0)
++                            .margin_left(10.0)
++                            .border(1.0)
++                            .border_radius(6.0)
++                            .border_color(config.color(LapceColor::LAPCE_BORDER))
++                            .cursor(CursorStyle::Pointer)
++                    }),
++            ))
++            .style(|s| s.margin_top(28.0)),
++        ))
++        .style(|s| s.flex_col().items_center()),
++    )
++    .style(move |s| {
++        let config = config.get();
++        let is_empty = editor_tabs.with(|tabs| {
++            tabs.values()
++                .all(|tab| tab.with(|tab| tab.children.is_empty()))
++        });
++        s.position(Position::Absolute)
++            .size_full()
++            .flex_col()
++            .items_center()
++            .justify_center()
++            .background(config.color(LapceColor::EDITOR_BACKGROUND))
++            .apply_if(!no_workspace || !is_empty, |s| s.display(Display::None))
++    })
++    .debug_name("CodeStrike Start")
++}
++
+@@ -2190 +2272,5 @@ fn workbench(window_tab_data: Rc<WindowTabData>) -> impl View {
+-                main_split(window_tab_data.clone()),
++                stack((
++                    main_split(window_tab_data.clone()),
++                    codestrike_start(window_tab_data.clone()),
++                ))
++                .style(|s| s.width_full().flex_grow(1.0).flex_basis(0.0)),
+@@ -3677,2 +3763,2 @@ fn window(window_data: WindowData) -> impl View {
 -            Some(workspace) => format!("{workspace} - Lapce"),
 -            None => "Lapce".to_string(),
 +            Some(workspace) => format!("{workspace} - CodeStrike"),
 +            None => "CodeStrike".to_string(),
-         }
-     })
-     .on_event_stop(EventListener::ImeEnabled, move |_| {
-@@ -3703,7 +3703,7 @@ fn window(window_data: WindowData) -> impl View {
-             let lapce_command = window_tab.common.lapce_command;
-             window_menu(lapce_command, workbench_command)
-         } else {
+@@ -3706 +3792 @@ fn window(window_data: WindowData) -> impl View {
 -            Menu::new("Lapce")
 +            Menu::new("CodeStrike")
-         }
-     })
-     .style(|s| s.size_full())
-@@ -3718,7 +3718,7 @@ pub fn launch() {
-     }
- 
-     let (reload_handle, _guard) = logging::logging();
+@@ -3721 +3807 @@ pub fn launch() {
 -    trace!(TraceLevel::INFO, "Starting up Lapce..");
 +    trace!(TraceLevel::INFO, "Starting up CodeStrike editor preview..");
- 
-     #[cfg(feature = "vendored-fonts")]
-     {
-@@ -3892,6 +3892,7 @@ pub fn launch() {
-         });
-     }
- 
+@@ -3792 +3878 @@ pub fn launch() {
+-            eprintln!("Failed to launch lapce: {why}");
++            eprintln!("Failed to launch CodeStrike: {why}");
+@@ -3894,0 +3981 @@ pub fn launch() {
 +    #[cfg(feature = "codestrike-online-grammars")]
-     {
-         let cx = Scope::new();
-         let app_data = app_data.clone();
-@@ -4166,10 +4167,10 @@ pub fn window_menu(
-     lapce_command: Listener<LapceCommand>,
-     workbench_command: Listener<LapceWorkbenchCommand>,
- ) -> Menu {
+@@ -4169 +4256 @@ pub fn window_menu(
 -    Menu::new("Lapce")
 +    Menu::new("CodeStrike")
-         .entry({
+@@ -4171,2 +4258,2 @@ pub fn window_menu(
 -            let mut menu = Menu::new("Lapce")
 -                .entry(MenuItem::new("About Lapce").action(move || {
 +            let mut menu = Menu::new("CodeStrike")
 +                .entry(MenuItem::new("About CodeStrike").action(move || {
-                     workbench_command.send(LapceWorkbenchCommand::ShowAbout)
-                 }))
-                 .separator()
 diff --git a/lapce-app/src/command.rs b/lapce-app/src/command.rs
 index c0cc3b8..26eae58 100644
 --- a/lapce-app/src/command.rs
 +++ b/lapce-app/src/command.rs
-@@ -548,7 +548,7 @@ pub enum LapceWorkbenchCommand {
-     RestartToUpdate,
- 
-     #[strum(serialize = "show_about")]
+@@ -551 +551 @@ pub enum LapceWorkbenchCommand {
 -    #[strum(message = "About Lapce")]
 +    #[strum(message = "About CodeStrike")]
-     ShowAbout,
- 
-     #[strum(message = "Save All Files")]
+diff --git a/lapce-app/src/config.rs b/lapce-app/src/config.rs
+index 1070577..b966ed8 100644
+--- a/lapce-app/src/config.rs
++++ b/lapce-app/src/config.rs
+@@ -217 +217 @@ fn merge_config(
+-                    let path = path.join("./.lapce/settings.toml");
++                    let path = path.join("./.codestrike/settings.toml");
+diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
+index fb85013..c7ac84f 100644
+--- a/lapce-app/src/palette.rs
++++ b/lapce-app/src/palette.rs
+@@ -886 +886 @@ fn set_run_configs(&self, content: String) {
+-                let path = path.join(".lapce").join("run.toml");
++                let path = path.join(".codestrike").join("run.toml");
+@@ -945 +945 @@ fn get_run_configs(&self) {
+-            let run_toml = workspace.join(".lapce").join("run.toml");
++            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
 index c229528..a1ff42b 100644
 --- a/lapce-app/src/plugin.rs
 +++ b/lapce-app/src/plugin.rs
-@@ -183,7 +183,9 @@ pub fn new(
-             common,
-         };
- 
+@@ -186 +186,3 @@ pub fn new(
 -        plugin.load_available_volts("", 0, core_rpc.clone());
 +        if cfg!(feature = "codestrike-online-catalog") {
 +            plugin.load_available_volts("", 0, core_rpc.clone());
 +        }
- 
-         {
-             let plugin = plugin.clone();
-@@ -233,7 +235,9 @@ pub fn new(
-                 plugin.available.query_id.update(|id| *id += 1);
-                 plugin.available.loading.set(false);
-                 plugin.available.volts.update(|v| v.clear());
+@@ -236 +238,3 @@ pub fn new(
 -                plugin.load_available_volts(&query, 0, core_rpc.clone());
 +                if cfg!(feature = "codestrike-online-catalog") {
 +                    plugin.load_available_volts(&query, 0, core_rpc.clone());
 +                }
-                 query
-             });
-         }
-@@ -284,7 +288,7 @@ pub fn volt_installed(&self, volt: &VoltMetadata, icon: &Option<Vec<u8>>) {
-         }
- 
-         let latest = volt_data.latest;
+@@ -287 +291 @@ pub fn volt_installed(&self, volt: &VoltMetadata, icon: &Option<Vec<u8>>) {
 -        if !is_latest {
 +        if cfg!(feature = "codestrike-online-catalog") && !is_latest {
-             let url = format!(
-                 "https://plugins.lapce.dev/api/v1/plugins/{}/{}/latest",
-                 volt.author, volt.name
+diff --git a/lapce-app/src/terminal/panel.rs b/lapce-app/src/terminal/panel.rs
+index 81455b2..90657bf 100644
+--- a/lapce-app/src/terminal/panel.rs
++++ b/lapce-app/src/terminal/panel.rs
+@@ -521 +521 @@ fn get_run_config_by_name(&self, name: &str) -> Option<RunDebugConfig> {
+-            let run_toml = workspace.join(".lapce").join("run.toml");
++            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/title.rs b/lapce-app/src/title.rs
 index 5933603..2c1b786 100644
 --- a/lapce-app/src/title.rs
 +++ b/lapce-app/src/title.rs
-@@ -377,7 +377,7 @@ fn right(
-                         MenuItem::new("No update available").enabled(false)
-                     })
-                     .separator()
+@@ -380 +380 @@ fn right(
 -                    .entry(MenuItem::new("About Lapce").action(move || {
 +                    .entry(MenuItem::new("About CodeStrike").action(move || {
-                         workbench_command.send(LapceWorkbenchCommand::ShowAbout)
-                     }))
-             }),
 diff --git a/lapce-core/build.rs b/lapce-core/build.rs
 index d4a7d15..695113b 100644
 --- a/lapce-core/build.rs
 +++ b/lapce-core/build.rs
-@@ -26,7 +26,7 @@ fn main() -> Result<()> {
- 
-     #[rustfmt::skip]
-     let meta = format!(r#"
+@@ -29 +29 @@ fn main() -> Result<()> {
 -        pub const NAME: &str = "Lapce-{branch}";
 +        pub const NAME: &str = "CodeStrike";
-         pub const VERSION: &str = "{version}";
-         pub const RELEASE: ReleaseType = ReleaseType::{branch};
-     "#);
 diff --git a/lapce-core/src/directory.rs b/lapce-core/src/directory.rs
 index 4284977..987b4a3 100644
 --- a/lapce-core/src/directory.rs
 +++ b/lapce-core/src/directory.rs
-@@ -13,7 +13,7 @@ pub fn home_dir() -> Option<PathBuf> {
- 
-     #[cfg(not(feature = "portable"))]
-     fn project_dirs() -> Option<ProjectDirs> {
+@@ -16 +16 @@ fn project_dirs() -> Option<ProjectDirs> {
 -        ProjectDirs::from("dev", "lapce", NAME)
 +        ProjectDirs::from("com", "ArtCraft", NAME)
-     }
- 
-     /// Return path adjacent to lapce executable when built as portable
-@@ -21,7 +21,7 @@ fn project_dirs() -> Option<ProjectDirs> {
-     fn project_dirs() -> Option<ProjectDirs> {
-         if let Ok(current_exe) = std::env::current_exe() {
-             if let Some(parent) = current_exe.parent() {
+@@ -24 +24 @@ fn project_dirs() -> Option<ProjectDirs> {
 -                return ProjectDirs::from_path(parent.join("lapce-data"));
 +                return ProjectDirs::from_path(parent.join("codestrike-data"));
-             }
-             unreachable!("Couldn't obtain current process parent path");
-         }
