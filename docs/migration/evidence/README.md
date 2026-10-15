@@ -27,8 +27,18 @@ job `116387451149`, which compiled draft commit
 | [Workspace search](workspace-search.jpg) | The search panel visibly lists three `codestrike_search_needle` matches across `main.rs` and `other.rs`. This frame alone does not test navigation or replacement. | `d1bd6a4c6b19992ceb377d31cbaa76e6cf7fe352cf5526f9cd5fddb947705b4c` |
 | [GUI conflict](gui-conflict.jpg) | The alert reports an external disk change while the unsaved local edit remains visible. The run asserted the external file bytes were preserved. | `ba2c8599bcfa5ac1481f83819a1e5b0c64dde36e3e60b0645f81cd27c1b0f889` |
 
+The final three came from [run 38735350052](https://github.com/Gerbzz/CodeStrike/actions/runs/38735350052),
+job `116423124732`, which compiled draft commit
+`fa6e9b8e0b06a2b3c1a9f5ff1f6b01ededc490ba` on `windows-latest`.
+
+| Capture | What the frame verifies | SHA-256 |
+| --- | --- | --- |
+| [Search result opened](search-result.jpg) | Clicking the `other.rs` hit opened that file and showed its match; the run then asserted a keyboard edit saved to `other.rs`. Exact caret range was not asserted. | `972784c134631cbadfa89d18ac57b21f2ac8c23fe84c4555d5093b6fd34098f8` |
+| [Replace field ready](replace-ready.jpg) | Tab from Find expanded Replace and entered `codestrike_replaced` into the replacement input. | `181c8e599ff354952dd9010f2e24e7096ad183dee6c67219dc0bc0fbaa8b7fef` |
+| [Per-file replace applied](replace-applied.jpg) | The find bar shows no remaining hits in `main.rs` after Replace All; the run asserted exactly two replacements on disk in `main.rs`, while `other.rs` retained its match. | `10894b6d029e5f22aee0ed5f8f48220a47b3a9af59be531178373dc523166506` |
+
 All fixtures were created under the hosted runner's temporary directory by
 [`scripts/probe-windows-editor.ps1`](../../../scripts/probe-windows-editor.ps1)
 or [`scripts/probe-editor-acceptance.ps1`](../../../scripts/probe-editor-acceptance.ps1).
-The captures do not establish workspace-wide replacement, local language
-tooling, or clean-machine installation.
+The captures do not establish workspace-wide replacement, exact match-range
+navigation, local language tooling, or clean-machine installation.

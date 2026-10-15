@@ -124,7 +124,14 @@ end-to-end product test.
   wrote the expected marker to disk. Its CLI smoke, three save tests, and
   startup/folder/file GUI captures passed. The debug executable measured
   110.94 MiB in this run with 30.73 GiB free afterward; debug size varied
-  across hosted runs. Reopen in the GUI, editing edge cases, search/replace,
-  local LSP, and a clean-machine package remain acceptance gates.
+  across hosted runs. A later
+  [Windows acceptance run](https://github.com/Gerbzz/CodeStrike/actions/runs/38735350052)
+  passed three-tab reopening and further saves, workspace search-result
+  navigation to another file, two per-file Replace All edits with the other
+  file untouched, and GUI external-change conflict protection. Tab from Find
+  now opens and focuses Replace. These are bounded synthetic fixture checks;
+  exact match-range placement, reviewable workspace-wide replacement,
+  editing/encoding edge cases, local LSP, and a clean-machine package remain
+  acceptance gates. The debug binary measurement above is not a release size.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.

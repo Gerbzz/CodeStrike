@@ -23,7 +23,7 @@ on-disk contents to the opened version, while `lapce-app/src/doc.rs` ignores
 external changes when the document is dirty. The draft patch now fingerprints
 the opened bytes, refuses conflicting saves and pre-existing backups, and
 writes through a temporary file; save failures now open a visible alert.
-Three focused Windows save tests now pass. Full GUI save behavior remains pending. Per-file replace
+Three focused Windows save tests now pass. The tested GUI conflict path is recorded below; encoding, recovery, and broader save behavior remain pending. Per-file replace
 exists, but a reviewable workspace-wide replacement was not established from
 the inspected source. Keep that capability out of claims until implemented.
 
@@ -76,6 +76,25 @@ workspace search visibly returned three matches in two fixture files; a dirty
 GUI buffer refused to overwrite an external file change and displayed an
 alert while the external bytes remained intact. The unedited
 [screenshots and hashes](evidence/README.md) provide visual provenance.
-Search-result navigation and per-file Replace All are under a further hosted
-assertion. Workspace-wide replace preview, encoding edge cases, split tabs,
-and local language tooling remain unverified.
+The [calibrated navigation run](https://github.com/Gerbzz/CodeStrike/actions/runs/38729935295)
+opened the clicked workspace search result in `other.rs`, then edited and
+saved that file; the assertion passed. The same run's Replace All probe clicked
+left of the collapsed replace toggle, so it established no replacement result.
+The [next run](https://github.com/Gerbzz/CodeStrike/actions/runs/38731656949)
+opened the replacement row, but the probe clicked below its input and icon;
+the captured frame shows the replacement marker in the file buffer instead.
+The [visible-center run](https://github.com/Gerbzz/CodeStrike/actions/runs/38733101720)
+also failed the replacement assertion because the toggle click did not expand
+the row consistently; the screenshot shows replacement text in Find. The draft
+then made Tab from Find open and focus Replace. The resulting
+[Windows run 38735350052](https://github.com/Gerbzz/CodeStrike/actions/runs/38735350052)
+passed compilation, CLI smoke, all three proxy save tests, three-tab reopen,
+search-hit navigation, per-file Replace All, and GUI external-change conflict.
+The search-hit check clicked the `other.rs` result and saved a marker in
+`other.rs`; the replacement check used Tab to focus Replace, clicked Replace
+All, and asserted that exactly two occurrences changed in `main.rs` while
+`other.rs` retained its original match. The unedited
+[search and replacement captures](evidence/README.md) show the UI states.
+Exact match-range placement, reviewable workspace-wide replacement with
+rollback, encoding edge cases, split tabs, and local language tooling remain
+unverified.

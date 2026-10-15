@@ -57,8 +57,8 @@
 
 - [x] Add unique search fixture and search/result capture (`75843fa`).
 - [x] Add per-file replace interaction and disk assertions (`c46266f`); hosted outcome pending.
-- [ ] Run hosted workflow; fix any demonstrated source defect with regression coverage and rerun.
-- [ ] Record scope and commit.
+- [x] Run hosted workflow; replace fragile toggle/input clicks by opening Replace with Tab in the pinned source patch, then verify the GUI and disk assertions ([run 38735350052](https://github.com/Gerbzz/CodeStrike/actions/runs/38735350052)).
+- [x] Record the passed per-file behavior and pending workspace-wide preview in `docs/migration/ACCEPTANCE.md`.
 
 ### Task 4: GUI external-change conflict
 
@@ -76,6 +76,6 @@
 
 **Interface:** Each claimed pass links to a hosted run and image; every remaining limitation stays explicit.
 
-- [ ] Review all screenshots and CI logs against assertions.
+- [x] Review all screenshots and CI logs against assertions, including the passed final Windows run `38735350052`.
 - [ ] Update docs, hashes, and draft PR; verify baseline and disk floor.
 - [ ] Leave draft PR unmerged and report exact commit/run links.
