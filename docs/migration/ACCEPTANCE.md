@@ -153,3 +153,37 @@ exactly. The log marker is
 See the [unedited GUI frames and hashes](evidence/README.md). This single
 scenario does not prove crash recovery, cross-session Undo, multi-file
 atomicity, or concurrent pathname swaps.
+
+## Clean external reload and guarded save
+
+Independent source review found that an accepted clean-file reload updated the
+editor text but left the proxy's disk fingerprint at the previous file version.
+The proxy would then refuse a legitimate later save. The draft now sends an
+acknowledgement only after the editor accepts a clean reload; the proxy accepts
+it only when the revision and buffer bytes still match the file on disk. Twelve
+focused save tests passed in [Windows run 38773380677](https://github.com/Gerbzz/CodeStrike/actions/runs/38773380677),
+including stale-revision, unsaved-content, and newer-disk refusals. The dirty
+GUI save-conflict check also passed.
+
+The native clean-reload probe in that run remained red because the tab still
+displayed its original text after an external write. The earlier test-only
+[run 38770877977](https://github.com/Gerbzz/CodeStrike/actions/runs/38770877977)
+showed the same limit; neither GUI failure alone exercised the accepted-reload
+fingerprint path. A bounded trace in
+[run 38777886375](https://github.com/Gerbzz/CodeStrike/actions/runs/38777886375)
+showed the Windows modification event arriving and matching two watched paths.
+Source inspection then found the handoff mismatch: CLI parsing canonicalizes
+the open file to a `\\?\` path, while the watcher strips that prefix before
+proxy buffer lookup. The draft resolves watch events back to the exact open
+buffer key and includes Windows path tests. The full native GUI acceptance
+result for that correction is recorded in
+[run 38780232313](https://github.com/Gerbzz/CodeStrike/actions/runs/38780232313),
+job `116578208785`, at code commit `42c8c15`. Every configured step passed:
+12 proxy save tests, 4 replacement tests, startup, three-tab reopen, search,
+workspace replacement, encoding, and dirty-file conflict. The clean-reload
+GUI capture shows the external text in the open tab, then the probe appended
+a local edit and asserted the exact combined UTF-8 bytes on disk. Its marker
+is `CODESTRIKE_ACCEPTANCE_CLEAN_RELOAD=external-reload-and-save-passed`.
+This verifies one Windows clean reload and later save, not every filesystem
+watcher event or cross-platform path form. Full save/recovery acceptance above
+remains pending for crash interruption and broader external-write cases.
