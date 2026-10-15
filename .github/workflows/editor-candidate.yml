@@ -96,7 +96,7 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario Search
-      - name: Inspect workspace replacement controls
+      - name: Test workspace replacement preview apply and checked undo
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario WorkspaceReplace

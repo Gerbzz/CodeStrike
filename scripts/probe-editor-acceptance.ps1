@@ -224,7 +224,7 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 3
         Capture-Candidate 'workspace_search'
-        Click-WindowOffset $editor 425 430
+        Click-WindowOffset $editor 425 460
         Start-Sleep -Seconds 2
         Capture-Candidate 'workspace_hit_click'
         Focus-Candidate $editor
@@ -278,19 +278,79 @@ try {
     } elseif ($Scenario -eq 'WorkspaceReplace') {
         $first = Join-Path $fixture 'one.rs'
         $second = Join-Path $fixture 'two.rs'
+        $ignored = Join-Path $fixture 'ignored.rs'
+        $unsupported = Join-Path $fixture 'unsupported.rs'
+        $readOnly = Join-Path $fixture 'read_only.rs'
         $needle = 'codestrike_workspace_needle'
-        [System.IO.File]::WriteAllText($first, ("let café = $needle;" + [char]10))
-        [System.IO.File]::WriteAllText($second, ("let café = $needle;" + [char]10))
+        $replacement = 'codestrike_workspace_replaced'
+        $utf8 = [System.Text.UTF8Encoding]::new($false)
+        $firstOriginal = [byte[]]([byte[]]@(0xef, 0xbb, 0xbf) + $utf8.GetBytes("let café = $needle;" + [char]13 + [char]10))
+        $secondOriginal = $utf8.GetBytes("let α = $needle;" + [char]10)
+        $firstApplied = [byte[]]([byte[]]@(0xef, 0xbb, 0xbf) + $utf8.GetBytes("let café = $replacement;" + [char]13 + [char]10))
+        $secondApplied = $utf8.GetBytes("let α = $replacement;" + [char]10)
+        $unsupportedOriginal = [byte[]]([byte[]]@(0xff) + $utf8.GetBytes($needle))
+        [System.IO.File]::WriteAllBytes($first, $firstOriginal)
+        [System.IO.File]::WriteAllBytes($second, $secondOriginal)
+        [System.IO.File]::WriteAllText((Join-Path $fixture '.gitignore'), 'ignored.rs')
+        [System.IO.File]::WriteAllText($ignored, $needle)
+        [System.IO.File]::WriteAllBytes($unsupported, $unsupportedOriginal)
+        [System.IO.File]::WriteAllText($readOnly, $needle)
+        [System.IO.File]::SetAttributes($readOnly, [System.IO.FileAttributes]::ReadOnly)
         $editor = Start-Candidate @($fixture, $first)
         Click-Editor $editor
         [System.Windows.Forms.SendKeys]::SendWait('^+f')
         [System.Windows.Forms.SendKeys]::SendWait($needle)
         Start-Sleep -Seconds 2
-        Capture-Candidate 'workspace_replace_closed'
         Click-WindowOffset $editor 360 330
         Start-Sleep -Seconds 1
         Capture-Candidate 'workspace_replace_open'
-        'CODESTRIKE_ACCEPTANCE_WORKSPACE_REPLACE=controls-inspected-only'
+        Click-WindowOffset $editor 430 368
+        [System.Windows.Forms.SendKeys]::SendWait($replacement)
+        Capture-Candidate 'workspace_replace_ready'
+        Click-WindowOffset $editor 330 393
+        Start-Sleep -Seconds 2
+        Capture-Candidate 'workspace_replace_preview'
+        if (-not (Wait-FileBytes $first $firstOriginal) -or -not (Wait-FileBytes $second $secondOriginal)) {
+            throw 'Preview changed a file before explicit Apply.'
+        }
+        $external = $utf8.GetBytes("external $needle" + [char]10)
+        [System.IO.File]::WriteAllBytes($second, $external)
+        Click-WindowOffset $editor 430 393
+        Start-Sleep -Seconds 1
+        if (-not (Wait-FileBytes $first $firstOriginal) -or -not (Wait-FileBytes $second $external)) {
+            throw 'Apply overwrote a file changed after preview.'
+        }
+        Capture-Candidate 'workspace_replace_apply_conflict'
+        [System.IO.File]::WriteAllBytes($second, $secondOriginal)
+        Click-WindowOffset $editor 330 393
+        Start-Sleep -Seconds 1
+        Click-WindowOffset $editor 430 393
+        if (-not (Wait-FileBytes $first $firstApplied) -or -not (Wait-FileBytes $second $secondApplied)) {
+            Capture-Candidate 'workspace_replace_apply_failure'
+            throw 'Explicit Apply did not replace both supported files while preserving BOM and newlines.'
+        }
+        if ([System.IO.File]::ReadAllText($ignored) -cne $needle -or
+            [System.IO.File]::ReadAllText($readOnly) -cne $needle -or
+            -not (Wait-FileBytes $unsupported $unsupportedOriginal)) {
+            throw 'Ignored, read-only or unsupported file changed during workspace replacement.'
+        }
+        Capture-Candidate 'workspace_replace_applied'
+        $newer = $utf8.GetBytes("newer user edit" + [char]10)
+        [System.IO.File]::WriteAllBytes($first, $newer)
+        Click-WindowOffset $editor 530 393
+        Start-Sleep -Seconds 1
+        if (-not (Wait-FileBytes $first $newer) -or -not (Wait-FileBytes $second $secondApplied)) {
+            throw 'Checked Undo overwrote a newer edit.'
+        }
+        Capture-Candidate 'workspace_replace_undo_conflict'
+        [System.IO.File]::WriteAllBytes($first, $firstApplied)
+        Click-WindowOffset $editor 530 393
+        if (-not (Wait-FileBytes $first $firstOriginal) -or -not (Wait-FileBytes $second $secondOriginal)) {
+            Capture-Candidate 'workspace_replace_undo_failure'
+            throw 'Checked Undo did not restore both original files.'
+        }
+        Capture-Candidate 'workspace_replace_undone'
+        'CODESTRIKE_ACCEPTANCE_WORKSPACE_REPLACE=preview-conflict-apply-undo-passed'
     } elseif ($Scenario -eq 'Encoding') {
         $utf8 = [System.Text.UTF8Encoding]::new($false)
         $supported = @(

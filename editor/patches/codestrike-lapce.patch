@@ -1046,10 +1046,10 @@ index d49951fa..d1cae82d 100644
 +}
 diff --git a/lapce-proxy/src/codestrike_replace.rs b/lapce-proxy/src/codestrike_replace.rs
 new file mode 100644
-index 00000000..72a01e70
+index 00000000..7344416a
 --- /dev/null
 +++ b/lapce-proxy/src/codestrike_replace.rs
-@@ -0,0 +1,480 @@
+@@ -0,0 +1,525 @@
 +//! Bounded, local-only workspace replacement with an explicit preview and checked undo.
 +use std::{
 +    fs::{self, File, OpenOptions},
@@ -1134,6 +1134,9 @@ index 00000000..72a01e70
 +    if query.pattern.is_empty() {
 +        bail!("Enter a search pattern before previewing replacement");
 +    }
++    if query.pattern.len() > 4096 || query.replacement.len() > 4096 {
++        bail!("Search and replacement text must each be at most 4096 bytes");
++    }
 +    let pattern = if query.is_regex {
 +        query.pattern.clone()
 +    } else {
@@ -1200,6 +1203,9 @@ index 00000000..72a01e70
 +        let text = std::str::from_utf8(&bytes)?;
 +        let mut previews = Vec::new();
 +        for found in regex.find_iter(text) {
++            if found.len() > 1024 {
++                bail!("Match longer than 1024 bytes; narrow the search");
++            }
 +            if found.as_str().contains('\n') {
 +                bail!(
 +                    "Multiline matches are not supported in workspace replacement"
@@ -1210,6 +1216,19 @@ index 00000000..72a01e70
 +            let line_end = text[found.start()..]
 +                .find('\n')
 +                .map_or(text.len(), |offset| found.start() + offset);
++            let prefix = text[line_start..found.start()]
++                .chars()
++                .rev()
++                .take(60)
++                .collect::<Vec<_>>()
++                .into_iter()
++                .rev()
++                .collect::<String>();
++            let suffix = text[found.end()..line_end]
++                .trim_end_matches('\r')
++                .chars()
++                .take(60)
++                .collect::<String>();
 +            let mut replacement = String::new();
 +            if !query.is_regex {
 +                replacement = query.replacement.clone();
@@ -1223,11 +1242,7 @@ index 00000000..72a01e70
 +                    .count()
 +                    + 1,
 +                column: found.start() - line_start,
-+                context: text[line_start..line_end]
-+                    .trim_end_matches('\r')
-+                    .chars()
-+                    .take(160)
-+                    .collect(),
++                context: format!("{prefix}{}{suffix}", found.as_str()),
 +                found: found.as_str().to_string(),
 +                replacement,
 +            });
@@ -1271,10 +1286,18 @@ index 00000000..72a01e70
 +    if fs::metadata(path)?.permissions().readonly() {
 +        bail!("File became read-only: {}", path.display());
 +    }
-+    if fs::read(path)? != expected {
++    if !matches_bytes(path, expected)? {
 +        bail!("File changed after preview: {}", path.display());
 +    }
 +    Ok(())
++}
++
++fn matches_bytes(path: &Path, expected: &[u8]) -> Result<bool> {
++    let mut bytes = Vec::new();
++    File::open(path)?
++        .take(expected.len() as u64 + 1)
++        .read_to_end(&mut bytes)?;
++    Ok(bytes == expected)
 +}
 +
 +fn unique_path(path: &Path, kind: &str) -> PathBuf {
@@ -1295,7 +1318,9 @@ index 00000000..72a01e70
 +        .share_mode(0x00000001 | 0x00000004) // FILE_SHARE_READ | FILE_SHARE_DELETE
 +        .open(path)?;
 +    let mut bytes = Vec::new();
-+    file.read_to_end(&mut bytes)?;
++    (&mut file)
++        .take(expected.len() as u64 + 1)
++        .read_to_end(&mut bytes)?;
 +    if bytes != expected {
 +        bail!("File changed after preview: {}", path.display());
 +    }
@@ -1318,7 +1343,7 @@ index 00000000..72a01e70
 +        drop(output);
 +        // create_new semantics: a pre-existing backup can never be overwritten.
 +        fs::hard_link(path, &backup)?;
-+        if fs::read(path)? != expected {
++        if !matches_bytes(path, expected)? {
 +            bail!("File changed during replacement: {}", path.display());
 +        }
 +        fs::remove_file(path)?;
@@ -1330,7 +1355,7 @@ index 00000000..72a01e70
 +        Ok(())
 +    })();
 +    let _ = fs::remove_file(&temp);
-+    if result.is_err() && fs::read(path).is_ok_and(|bytes| bytes == expected) {
++    if result.is_err() && matches_bytes(path, expected).unwrap_or(false) {
 +        let _ = fs::remove_file(&backup);
 +    }
 +    result.map(|()| backup.clone()).with_context(|| {
@@ -1389,7 +1414,7 @@ index 00000000..72a01e70
 +    for item in &applied {
 +        if let Err(err) = check_file(root, &item.file.path, &item.file.after)
 +            .and_then(|()| {
-+                if fs::read(&item.backup)? != item.file.before {
++                if !matches_bytes(&item.backup, &item.file.before)? {
 +                    bail!("Recovery backup changed: {}", item.backup.display());
 +                }
 +                Ok(())
@@ -1528,6 +1553,26 @@ index 00000000..72a01e70
 +            fs::read(&file).unwrap(),
 +            "\u{feff}let α = écaf;\r\n".as_bytes()
 +        );
++    }
++
++    #[test]
++    fn codestrike_replace_literal_dollars_and_unicode_word_flags() {
++        let dir = fixture();
++        let file = dir.path().join("words.txt");
++        fs::write(&file, "café CAFÉ cafétéria\n").unwrap();
++        let plan = preview(
++            dir.path(),
++            &ReplaceQuery {
++                pattern: "café".into(),
++                replacement: "$1".into(),
++                case_sensitive: false,
++                whole_word: true,
++                is_regex: false,
++            },
++        )
++        .unwrap();
++        assert_eq!(plan.match_count(), 2);
++        assert_eq!(plan.files[0].after, b"$1 $1 caf\xc3\xa9t\xc3\xa9ria\n");
 +    }
 +}
 diff --git a/lapce-proxy/src/dispatch.rs b/lapce-proxy/src/dispatch.rs

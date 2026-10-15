@@ -25,8 +25,10 @@ remains available. Search results alone never write files.
 
 The operation is bounded to local Windows folders: at most 2 MiB per scanned
 file, 20 MiB of original plus replacement bytes, 200 changed files, and 500
-matches. The ignore walker honors `.gitignore` even for a folder outside a
-Git repository. Symlinks and files outside the canonical workspace are
+matches. Search and replacement inputs are capped at 4096 bytes each, and
+individual matches at 1024 bytes. The ignore walker honors `.gitignore` even
+for a folder outside a Git repository. Symlinks and files outside the
+canonical workspace are
 excluded; invalid UTF-8, UTF-16/NUL-containing and read-only files are not
 rewritten. Literal and regex search use Unicode-aware matching; regex
 replacement supports captures. Zero-length and multiline matches are
