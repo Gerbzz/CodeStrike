@@ -121,6 +121,35 @@ other encodings, mixed newlines, every edit operation, or a recovery path.
 The runner reported a `rust-analyzer` command on PATH but no installed
 rustup `rust-analyzer` component. Local `rustup which rust-analyzer` also
 reports no component. See [language tooling assessment](LOCAL_LANGUAGE_TOOLS.md).
-Reviewable workspace-wide replacement with rollback, selected match-range
-highlighting, split tabs, local diagnostics/completion, full encoding coverage,
-and clean-machine installation remain unverified.
+The full search/replace row remains pending for selected match-range
+highlighting, a GUI regex case, and broader workspace shapes. Split tabs,
+local diagnostics/completion, full encoding coverage, and clean-machine
+installation also remain unverified.
+
+The workspace replacement draft adds a bounded preview, per-file checked
+application, and checked undo. [Run 38755566964](https://github.com/Gerbzz/CodeStrike/actions/runs/38755566964)
+compiled it and passed eight save tests and four replacement engine tests,
+including regex captures, Unicode word behavior, BOM retention, and conflicts
+before Apply and Undo. Its GUI capture shows the replacement text in the
+replacement input with the search query unchanged. The GUI step did not reach
+Apply: its click coordinates landed on the input because the logged capture
+was resized relative to the native window. The earlier
+[run 38752808636](https://github.com/Gerbzz/CodeStrike/actions/runs/38752808636)
+captures the separate input-focus failure; the [unedited frame](evidence/workspace-replace-focus-failure.jpg)
+is retained. No full GUI replacement pass is claimed from those runs.
+
+[Run 38757901744](https://github.com/Gerbzz/CodeStrike/actions/runs/38757901744),
+job `116501116239`, compiled draft commit `9a77ed67b69f0c8b0d483d9980a80379f7a62edb`
+and passed every configured step. Eight save tests and four replacement engine
+tests passed. In the native GUI, the replacement field received the intended
+text while the search query stayed unchanged; Preview listed two files and
+changed neither. An external edit after Preview blocked Apply without changing
+either file. A fresh Preview then applied exactly two replacements across a
+UTF-8 BOM/CRLF file and a UTF-8 LF file. Ignored, read-only, and invalid UTF-8
+fixtures retained their original bytes. Checked Undo refused a newer edit;
+after restoring the expected applied bytes, it restored both original files
+exactly. The log marker is
+`CODESTRIKE_ACCEPTANCE_WORKSPACE_REPLACE=preview-conflict-apply-undo-passed`.
+See the [unedited GUI frames and hashes](evidence/README.md). This single
+scenario does not prove crash recovery, cross-session Undo, multi-file
+atomicity, or concurrent pathname swaps.

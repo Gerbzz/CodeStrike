@@ -51,8 +51,8 @@ job `116434127701`, which compiled draft commit
 All fixtures were created under the hosted runner's temporary directory by
 [`scripts/probe-windows-editor.ps1`](../../../scripts/probe-windows-editor.ps1)
 or [`scripts/probe-editor-acceptance.ps1`](../../../scripts/probe-editor-acceptance.ps1).
-The captures do not establish workspace-wide replacement, selected match-range
-highlighting, local language tooling, or clean-machine installation.
+The captures above do not establish workspace-wide replacement, selected
+match-range highlighting, local language tooling, or clean-machine installation.
 
 The [workspace replacement focus failure](workspace-replace-focus-failure.jpg)
 is an unedited `workspace_replace_ready` capture from
@@ -63,3 +63,19 @@ The replacement string is visibly appended to the workspace search query,
 while the replacement input is empty. The same run passed eight save and four
 replacement engine tests, then failed the GUI byte assertion at Apply. This
 capture retains the failure that motivated the control and focus repair.
+
+The following unedited frames came from the passing
+[run 38757901744](https://github.com/Gerbzz/CodeStrike/actions/runs/38757901744),
+job `116501116239`, which compiled draft commit
+`9a77ed67b69f0c8b0d483d9980a80379f7a62edb` on `windows-latest`.
+The GUI probe separately compared full fixture bytes at every stage and
+emitted `CODESTRIKE_ACCEPTANCE_WORKSPACE_REPLACE=preview-conflict-apply-undo-passed`.
+
+| Capture | What the frame shows | SHA-256 |
+| --- | --- | --- |
+| [Replacement input ready](workspace-replace-ready.jpg) | Search query unchanged and replacement text in the focused replacement field. | `dd4f48b848c3190d4253341294711f8e9495169e916cac4c6381d165891e3c46` |
+| [Two-file preview](workspace-replace-preview.jpg) | Two matches listed with paths, positions, context, and replacement text before writes. | `319d50415340a9086517235a13441fdc2c2bfd7c6e6feb8991a63c09ddb5929e` |
+| [Apply conflict](workspace-replace-apply-conflict.jpg) | Changed-since-preview refusal after an external edit to `two.rs`; the probe asserted no planned file was overwritten. | `3bcc425a93da23eacbc42eba84e73df87c834163a3f95096b3ac40166298e1ca` |
+| [Applied](workspace-replace-applied.jpg) | Status reports two matches applied across two files; the probe compared exact bytes, including BOM and CRLF. | `d5a20b68b8f20648aca3b96f7bd3a5f9931441f2568ba39b94ed9ac2f37b630e` |
+| [Undo conflict](workspace-replace-undo-conflict.jpg) | Undo refuses a newer edit; the probe asserted applied and newer bytes were retained. | `1ae571667cea5439dd8323fea567cdc5a36f38f1e937b06f2916447cd62b40cc` |
+| [Checked undo](workspace-replace-undone.jpg) | Status reports two restored files; the probe asserted exact original bytes. Recovery backups remain visible. | `978f9b5c27ca2ce52ad21d4ecb0c40b49402ae2723686d975707b1ad36f103cb` |

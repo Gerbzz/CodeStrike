@@ -1,6 +1,6 @@
 # Checked workspace replacement candidate
 
-Status: **draft implementation under Windows verification**. This is a
+Status: **draft implementation with one passing Windows GUI path**. This is a
 separate workflow inside the search panel; the existing per-file Replace All
 remains available. Search results alone never write files.
 
@@ -40,5 +40,13 @@ Undo is available within the current editor session; the backups remain
 after exit for manual recovery. No automatic cross-session restore or cleanup
 is implemented. An external process that atomically swaps a pathname during
 the short per-file operation is still a concurrency risk to evaluate before
-release. These limits keep the feature in draft status until native GUI
-apply/undo and interruption cases have passed.
+release. [Hosted Windows run 38757901744](https://github.com/Gerbzz/CodeStrike/actions/runs/38757901744)
+passed the native GUI preview, changed-since-preview refusal, two-file Apply,
+newer-edit Undo refusal, and checked two-file Undo. The probe compared full
+file bytes before and after each operation, including a UTF-8 BOM/CRLF file,
+and confirmed ignored, read-only, and unsupported files were not changed.
+The matching engine also passed four focused Rust tests for literal and regex
+replacement, captures, Unicode word behavior, BOM retention, and conflict
+checks. Interrupted operations, process crashes, cross-session recovery,
+manual backup cleanup, and concurrent atomic pathname replacement remain
+unverified. The backup files remain visible after a successful Undo.
