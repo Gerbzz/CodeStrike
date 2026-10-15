@@ -23,8 +23,9 @@ on-disk contents to the opened version, while `lapce-app/src/doc.rs` ignores
 external changes when the document is dirty. The draft patch now fingerprints
 the opened bytes, refuses conflicting saves and pre-existing backups, and
 writes through a temporary file; save failures now open a visible alert.
-Three focused Windows save tests now pass. The tested GUI conflict path is recorded below; encoding, recovery, and broader save behavior remain pending. Per-file replace
-exists, but a reviewable workspace-wide replacement was not established from
+Six focused Windows save tests now pass. The tested GUI conflict and encoding
+paths are recorded below; recovery and broader save behavior remain pending.
+Per-file replace exists, but a reviewable workspace-wide replacement was not established from
 the inspected source. Keep that capability out of claims until implemented.
 
 Baseline checks completed on 2026-10-15: CodeStrike desktop inspection,
@@ -95,6 +96,28 @@ The search-hit check clicked the `other.rs` result and saved a marker in
 All, and asserted that exactly two occurrences changed in `main.rs` while
 `other.rs` retained its original match. The unedited
 [search and replacement captures](evidence/README.md) show the UI states.
-Exact match-range placement, reviewable workspace-wide replacement with
-rollback, encoding edge cases, split tabs, and local language tooling remain
-unverified.
+The [next Windows run 38738590545](https://github.com/Gerbzz/CodeStrike/actions/runs/38738590545)
+passed all configured steps at draft commit `b343191`. Search navigation now
+passes a stricter check: clicking a hit in `other.rs`, whose line has a
+multibyte `é` before the match, then typing `nav_` and saving produced exactly
+`let café = nav_codestrike_search_needle;` plus LF. The patch uses the
+proxy-provided UTF-8 byte column rather than the line alone. This verifies
+the edit caret for that hit, not match selection/highlighting or every search
+shape. The run again passed three-tab reopen, per-file Replace All, and GUI
+external-change conflict checks.
+
+The same run passed six proxy save tests and GUI encoding checks. A UTF-8
+Unicode/LF file and a UTF-8 BOM/CRLF file were each edited, saved, closed,
+reopened, edited, and saved again; exact byte comparisons after each round
+confirmed the original BOM and newline conventions. Invalid UTF-8, UTF-16,
+and NUL-containing fixtures were made read-only by the proxy, and attempted
+GUI edits/saves left their original bytes unchanged. See the
+[unedited captures and hashes](evidence/README.md). This does not verify
+other encodings, mixed newlines, every edit operation, or a recovery path.
+
+The runner reported a `rust-analyzer` command on PATH but no installed
+rustup `rust-analyzer` component. Local `rustup which rust-analyzer` also
+reports no component. See [language tooling assessment](LOCAL_LANGUAGE_TOOLS.md).
+Reviewable workspace-wide replacement with rollback, selected match-range
+highlighting, split tabs, local diagnostics/completion, full encoding coverage,
+and clean-machine installation remain unverified.

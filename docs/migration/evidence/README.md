@@ -37,8 +37,19 @@ job `116423124732`, which compiled draft commit
 | [Replace field ready](replace-ready.jpg) | Tab from Find expanded Replace and entered `codestrike_replaced` into the replacement input. | `181c8e599ff354952dd9010f2e24e7096ad183dee6c67219dc0bc0fbaa8b7fef` |
 | [Per-file replace applied](replace-applied.jpg) | The find bar shows no remaining hits in `main.rs` after Replace All; the run asserted exactly two replacements on disk in `main.rs`, while `other.rs` retained its match. | `10894b6d029e5f22aee0ed5f8f48220a47b3a9af59be531178373dc523166506` |
 
+The next four came from [run 38738590545](https://github.com/Gerbzz/CodeStrike/actions/runs/38738590545),
+job `116434127701`, which compiled draft commit
+`b343191ac9d85bb95efb178299486899f3d23dcb` on `windows-latest`.
+
+| Capture | What the frame verifies | SHA-256 |
+| --- | --- | --- |
+| [Exact search result opened](exact-search-result.jpg) | The clicked `other.rs` hit is open. The run separately typed `nav_`, saved, and asserted the entire file was exactly `let café = nav_codestrike_search_needle;` followed by LF. This tests the hit's UTF-8 byte column; the frame was taken before the edit. | `de254cad200c235a75c15c75f5ed5a41fcd1f0591639d41b21ae6a20cd672312` |
+| [UTF-8 LF reopened](utf8-lf-reopened.jpg) | Supported Unicode/LF fixture open after a close and reopen. The run separately compared exact file bytes after two GUI edit/save rounds. | `581bccebd425440d242f840e2a703c6e88da2beaf0ae5d38c59a28b6e8530aff` |
+| [UTF-8 BOM CRLF reopened](bom-crlf-reopened.jpg) | BOM/CRLF fixture open after a close and reopen. The run separately compared exact file bytes, including the BOM and CRLF, after two GUI edit/save rounds. | `0f9e39742bc0585202e012537085f0691593c10baa2b23f02c9cf6029e82a022` |
+| [Unsupported encoding read-only](unsupported-read-only.jpg) | The UTF-16 fixture displays the read-only explanation. The run separately asserted UTF-16, Latin-1, and NUL-containing fixtures retained their exact original bytes after attempted GUI edits and saves. | `b497150efc7acdaa9c75aeb5d459f1cbea2610ca16fc746fe6b9f34abdfe6ca8` |
+
 All fixtures were created under the hosted runner's temporary directory by
 [`scripts/probe-windows-editor.ps1`](../../../scripts/probe-windows-editor.ps1)
 or [`scripts/probe-editor-acceptance.ps1`](../../../scripts/probe-editor-acceptance.ps1).
-The captures do not establish workspace-wide replacement, exact match-range
-navigation, local language tooling, or clean-machine installation.
+The captures do not establish workspace-wide replacement, selected match-range
+highlighting, local language tooling, or clean-machine installation.

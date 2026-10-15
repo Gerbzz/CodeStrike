@@ -130,8 +130,16 @@ end-to-end product test.
   navigation to another file, two per-file Replace All edits with the other
   file untouched, and GUI external-change conflict protection. Tab from Find
   now opens and focuses Replace. These are bounded synthetic fixture checks;
-  exact match-range placement, reviewable workspace-wide replacement,
+  selected match-range highlighting, reviewable workspace-wide replacement,
   editing/encoding edge cases, local LSP, and a clean-machine package remain
-  acceptance gates. The debug binary measurement above is not a release size.
+  acceptance gates. The
+  [next Windows run](https://github.com/Gerbzz/CodeStrike/actions/runs/38738590545)
+  passed an exact Unicode-prefix search-hit edit at the expected caret, two
+  edit/save/reopen rounds on UTF-8 LF and BOM/CRLF fixtures with byte equality,
+  and read-only byte preservation for invalid UTF-8, UTF-16, and NUL-containing
+  files. Six proxy save tests passed. The runner reported a 103.32 MiB debug
+  executable and 30.26 GiB free after build. The debug measurement is not a
+  release or installed footprint. The local server feasibility assessment is
+  in [LOCAL_LANGUAGE_TOOLS.md](LOCAL_LANGUAGE_TOOLS.md).
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.
