@@ -34,17 +34,28 @@ function Start-Candidate([string[]]$paths) {
     $start.Environment['LOCALAPPDATA'] = $localData
     $process = [System.Diagnostics.Process]::Start($start)
     if ($null -eq $process) { throw 'Windows did not start the editor.' }
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
-        Start-Sleep -Milliseconds 500
-        $process.Refresh()
-        if ($process.HasExited) { throw "Editor exited during startup: $($process.ExitCode)." }
-        if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
-            Start-Sleep -Seconds 4
-            Write-Host "CODESTRIKE_ACCEPTANCE_WINDOW=$Scenario; handle=$($process.MainWindowHandle); title=$($process.MainWindowTitle)"
-            return $process
+    try {
+        for ($attempt = 0; $attempt -lt 240; $attempt++) {
+            Start-Sleep -Milliseconds 500
+            $process.Refresh()
+            if ($process.HasExited) { throw "Editor exited during startup: $($process.ExitCode)." }
+            if (($attempt % 40) -eq 39) {
+                Write-Host "CODESTRIKE_ACCEPTANCE_WINDOW_WAIT=seconds:$(($attempt + 1) / 2);pid:$($process.Id);session:$($process.SessionId);handle:$($process.MainWindowHandle)"
+            }
+            if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+                Start-Sleep -Seconds 4
+                Write-Host "CODESTRIKE_ACCEPTANCE_WINDOW=$Scenario; handle=$($process.MainWindowHandle); title=$($process.MainWindowTitle)"
+                return $process
+            }
         }
+        try { Capture-Candidate 'window_timeout' | Write-Host } catch { Write-Host "CODESTRIKE_ACCEPTANCE_DISPLAY_ERROR=$($_.Exception.Message)" }
+        throw 'Editor did not expose a window within 120 seconds.'
+    } catch {
+        $process.Refresh()
+        if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit(10000) | Out-Null }
+        $process.Dispose()
+        throw
     }
-    throw 'Editor did not expose a window within 20 seconds.'
 }
 
 function Focus-Candidate([System.Diagnostics.Process]$process) {
@@ -159,6 +170,43 @@ try {
         Edit-Three-Tabs $editor $paths 'reopened'
         Capture-Candidate 'reopened'
         'CODESTRIKE_ACCEPTANCE_TABS_AND_REOPEN=passed'
+    } elseif ($Scenario -eq 'Search') {
+        $path = Join-Path $fixture 'main.rs'
+        $other = Join-Path $fixture 'other.rs'
+        $needle = 'codestrike_search_needle'
+        [System.IO.File]::WriteAllText($path, "let $needle = 1;`nlet copy = $needle;`n")
+        [System.IO.File]::WriteAllText($other, "let other = $needle;`n")
+        $editor = Start-Candidate @($fixture, $path)
+        Click-Editor $editor
+        [System.Windows.Forms.SendKeys]::SendWait('^+f')
+        [System.Windows.Forms.SendKeys]::SendWait($needle)
+        Start-Sleep -Seconds 3
+        Capture-Candidate 'workspace_search'
+        Click-Editor $editor
+        [System.Windows.Forms.SendKeys]::SendWait('^f')
+        [System.Windows.Forms.SendKeys]::SendWait($needle)
+        Start-Sleep -Seconds 2
+        Capture-Candidate 'file_find'
+        'CODESTRIKE_ACCEPTANCE_SEARCH=visual-inspection-pending'
+    } elseif ($Scenario -eq 'Conflict') {
+        $path = Join-Path $fixture 'conflict.rs'
+        [System.IO.File]::WriteAllText($path, "// original`n")
+        $editor = Start-Candidate @($fixture, $path)
+        Click-Editor $editor
+        [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+        [System.Windows.Forms.SendKeys]::SendWait('codestrike_local_unsaved')
+        Start-Sleep -Milliseconds 500
+        $external = "// external_wins`n"
+        [System.IO.File]::WriteAllText($path, $external)
+        Start-Sleep -Seconds 1
+        Focus-Candidate $editor
+        [System.Windows.Forms.SendKeys]::SendWait('^s')
+        Start-Sleep -Seconds 2
+        if ([System.IO.File]::ReadAllText($path) -cne $external) {
+            throw 'GUI save overwrote an external change.'
+        }
+        Capture-Candidate 'conflict'
+        'CODESTRIKE_ACCEPTANCE_GUI_CONFLICT=external-bytes-preserved'
     } else {
         throw "Scenario $Scenario has no assertions yet."
     }

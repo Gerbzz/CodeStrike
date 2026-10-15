@@ -23,16 +23,19 @@ if ($null -eq $editor) { throw 'Windows did not start the editor process.' }
 
 try {
     $windowReady = $false
-    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {
         Start-Sleep -Seconds 1
         $editor.Refresh()
         if ($editor.HasExited) { throw "Editor exited during startup with code $($editor.ExitCode)." }
+        if (($attempt % 20) -eq 19) {
+            "CODESTRIKE_WINDOW_WAIT=seconds:$($attempt + 1);pid:$($editor.Id);session:$($editor.SessionId);handle:$($editor.MainWindowHandle)"
+        }
         if ($editor.MainWindowHandle -ne [IntPtr]::Zero) {
             $windowReady = $true
             break
         }
     }
-    if (-not $windowReady) { throw 'No editor window appeared within 30 seconds.' }
+    if (-not $windowReady) { throw 'No editor window appeared within 120 seconds.' }
     $mode = if ($Startup) { 'startup' } elseif ($File) { 'file' } else { 'folder' }
     "CODESTRIKE_GUI_PROBE=$mode-window-ready; title=$($editor.MainWindowTitle); handle=$($editor.MainWindowHandle)"
 

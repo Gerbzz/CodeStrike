@@ -81,3 +81,11 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario Tabs
+      - name: Inspect workspace search and file find
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Search
+      - name: Test GUI save conflict against an external writer
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Conflict
