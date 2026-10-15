@@ -110,6 +110,14 @@ end-to-end product test.
   compiled and passed all three save tests. The debug executable was 110.94
   MiB, and the hosted runner had 30.63 GiB free after build. This is not an
   installed or compressed release footprint. Its GUI process had a window
-  handle with an empty native title; visual capture is the next gate.
+  handle with an empty native title. The
+  [next run](https://github.com/Gerbzz/CodeStrike/actions/runs/38719598511)
+  compiled, passed CLI and three save tests, and captured real startup and
+  folder pixels. The approved logo and launch actions appear on startup, and
+  the file explorer lists a real temporary folder with `main.rs` and
+  `notes.txt`. The debug executable was 103.32 MiB in that run, with 27.49
+  GiB free on the hosted runner after build. Neither screenshot establishes
+  editing, search, language tooling, or an installed footprint. A keyboard
+  file edit/save probe is now being added.
 - Keep the draft PR unmerged until the acceptance gates pass. The old editor
   remains the default launcher throughout this migration.

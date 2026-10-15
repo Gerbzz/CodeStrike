@@ -22,7 +22,7 @@ on-disk contents to the opened version, while `lapce-app/src/doc.rs` ignores
 external changes when the document is dirty. The draft patch now fingerprints
 the opened bytes, refuses conflicting saves and pre-existing backups, and
 writes through a temporary file; save failures now open a visible alert.
-Focused Windows tests and GUI behavior are still pending. Per-file replace
+Three focused Windows save tests now pass. Full GUI save behavior remains pending. Per-file replace
 exists, but a reviewable workspace-wide replacement was not established from
 the inspected source. Keep that capability out of claims until implemented.
 
@@ -51,5 +51,11 @@ the tests even if the probe fails. The following
 compiled and passed branded CLI smoke plus all three save tests. The GUI
 process exposed a window handle but an empty native title, so the title-only
 probe failed before capturing pixels. The probe now brings that window forward
-and captures the screen for direct visual inspection. Do not advertise
-pending rows.
+and captures the screen for direct visual inspection. The
+[next hosted run](https://github.com/Gerbzz/CodeStrike/actions/runs/38719598511)
+passed compilation, CLI smoke, both GUI captures, and all three save tests.
+The startup capture shows the approved logo, CodeStrike name, and Open folder/
+Open file buttons. The folder capture shows the real fixture tree with
+`main.rs` and `notes.txt`; it does not yet prove file editing or reopening.
+The next probe opens `main.rs` directly and sends a keyboard edit/save, with a
+disk-content assertion. Do not advertise pending rows.

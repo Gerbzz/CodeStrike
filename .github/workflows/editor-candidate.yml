@@ -71,6 +71,7 @@ jobs:
         run: |
           .\scripts\probe-windows-editor.ps1 -Startup
           .\scripts\probe-windows-editor.ps1
+          .\scripts\probe-windows-editor.ps1 -File
       - name: Test save and conflict protection
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
