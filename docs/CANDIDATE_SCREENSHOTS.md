@@ -1,8 +1,8 @@
-# Draft editor screenshot provenance
+# Editor candidate screenshot provenance
 
-The full JPEG frames below are byte-for-byte copies from the **unmerged
-Lapce-based CodeStrike candidate** on draft PR [#1](https://github.com/Gerbzz/CodeStrike/pull/1).
-They do not depict the application built from `main`. The original frames
+The full JPEG frames below are byte-for-byte copies from the **Lapce-based
+CodeStrike candidate** developed in PR [#1](https://github.com/Gerbzz/CodeStrike/pull/1).
+They do not depict the default root application. The original frames
 include the Windows runner desktop and terminal. The README displays
 deterministic app-window crops while retaining every full original here.
 

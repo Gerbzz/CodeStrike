@@ -1,0 +1,3 @@
+[submodule "editor/lapce"]
+	path = editor/lapce
+	url = https://github.com/lapce/lapce.git

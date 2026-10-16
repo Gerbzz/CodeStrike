@@ -1,0 +1,114 @@
+name: CodeStrike editor candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [draft/lapce-foundation-migration]
+    paths:
+      - .github/workflows/editor-candidate.yml
+      - .gitmodules
+      - editor/**
+      - scripts/prepare-lapce.ps1
+      - scripts/probe-windows-editor.ps1
+      - scripts/probe-editor-acceptance.ps1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codestrike-editor-candidate
+  cancel-in-progress: true
+
+jobs:
+  windows-editor:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - name: Preserve upstream LF source for the pinned patch
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: Inspect runner and pinned source
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          $localRustAnalyzer = Get-Command rust-analyzer -ErrorAction SilentlyContinue
+          if ($localRustAnalyzer) {
+            "Already-installed rust-analyzer: $($localRustAnalyzer.Source)"
+          } else {
+            'Already-installed rust-analyzer: absent from PATH'
+          }
+          rustup component list --installed | Select-String 'rust-analyzer'
+          $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
+          "Runner free space: {0:N2} GiB" -f ($free / 1GB)
+          git -C editor/lapce rev-parse HEAD
+      - name: Prepare local CodeStrike candidate
+        shell: pwsh
+        run: .\scripts\prepare-lapce.ps1
+      - name: Verify formatting
+        shell: pwsh
+        run: cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check
+      - name: Compile Windows editor
+        id: compile
+        shell: pwsh
+        run: cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
+      - name: Smoke test candidate executable
+        shell: pwsh
+        run: |
+          $built = 'editor/lapce/target/debug/lapce.exe'
+          $exe = 'editor/lapce/target/debug/CodeStrike.exe'
+          if (-not (Test-Path -LiteralPath $built)) { throw 'Editor executable was not produced.' }
+          Copy-Item -LiteralPath $built -Destination $exe
+          "Candidate executable size: {0:N2} MiB" -f ((Get-Item -LiteralPath $exe).Length / 1MB)
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Editor --version failed.' }
+          & $exe --help | Select-Object -First 16
+          if ($LASTEXITCODE -ne 0) { throw 'Editor --help failed.' }
+          $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
+          "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
+      - name: Launch Windows editor and capture startup evidence
+        shell: pwsh
+        run: |
+          .\scripts\probe-windows-editor.ps1 -Startup
+          .\scripts\probe-windows-editor.ps1
+          .\scripts\probe-windows-editor.ps1 -File
+      - name: Test save and conflict protection
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_save_tests --lib
+      - name: Test checked workspace replacement engine
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_replace --lib
+      - name: Test three tabs and reopen session
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Tabs
+      - name: Inspect workspace search and file find
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Search
+      - name: Test workspace replacement preview apply and checked undo
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario WorkspaceReplace
+      - name: Test UTF-8 encoding and unsupported-file safety
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Encoding
+      - name: Test GUI save conflict against an external writer
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Conflict
+      - name: Test clean external reload followed by save
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario CleanReload
