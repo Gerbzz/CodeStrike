@@ -98,8 +98,6 @@ try {
     [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
     [System.Windows.Forms.SendKeys]::SendWait('{END}')
     [System.Windows.Forms.SendKeys]::SendWait('{LEFT 5}')
-    [System.Windows.Forms.SendKeys]::SendWait('^{SPACE}')
-    Start-Sleep -Milliseconds 500
     [System.Windows.Forms.SendKeys]::SendWait('^i')
     Start-Sleep -Seconds 8
     'CODESTRIKE_LSP_COMPLETION_KEYS=sent'
