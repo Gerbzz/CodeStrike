@@ -222,3 +222,11 @@ screenshots are bounded app-window captures in the hosted log. This tests
 one insertion and one unavailable-server configuration; definition, code
 actions, broader failure recovery, and clean-machine installation remain
 pending.
+
+The [final focused run 38962579373](https://github.com/Gerbzz/CodeStrike/actions/runs/38962579373),
+job `117181485050`, passed at code commit `70e8b9efdc19cd6e1b6a89f3c590b56d27640af4`.
+It strengthens the insertion check to a byte-by-byte comparison with the
+expected no-BOM UTF-8 file. It also waits for the missing-server error before
+capturing the app window; the resulting screenshot shows the error card,
+and the source SHA-256 remains unchanged. These checks are narrow regression
+coverage, not full language-tool acceptance.

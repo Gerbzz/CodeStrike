@@ -67,8 +67,7 @@ displayed `Read` at the top of the menu, selected it, and saved the expected
 decoded source text containing `use std::io::Read;`. That probe compared text,
 not encoding or byte identity. An E0308 diagnostic passed again. This is
 targeted regression coverage for the new `GetCompletion` handler and one
-completion insertion, not every Rust completion shape. The follow-up probe
-now compares expected UTF-8 bytes directly; its hosted result is pending.
+completion insertion, not every Rust completion shape.
 
 The same run explicitly set the pinned Volt's `serverPath` to a unique
 nonexistent executable. Source inspection confirms this configuration takes
@@ -80,6 +79,18 @@ and save attempt left the Rust source's SHA-256 unchanged. The probe found
 no LSP `initialize` message or downloaded `.gz` archive in the Volt folder.
 This covers one explicitly configured unavailable-server case, not every
 plugin failure, offline state, or recovery path.
+
+[Windows run 38962579373](https://github.com/Gerbzz/CodeStrike/actions/runs/38962579373),
+job `117181485050`, passed every step on follow-up code commit
+`70e8b9efdc19cd6e1b6a89f3c590b56d27640af4`. The insertion probe
+compared each saved byte with the expected no-BOM UTF-8 representation of
+`use std::io::Read;` and its unchanged second line; its marker is
+`CODESTRIKE_LSP_COMPLETION_INSERTION=read-saved-exact-utf8-bytes`. The
+missing-server probe waited for the proxy's `program not found` report,
+then captured the app window three seconds later. The screenshot visibly
+shows the error card, and the fixture file's SHA-256 remained unchanged
+after the completion/save attempt. This confirms exact bytes for this one
+completion and a visible message for this one missing executable.
 
 Next, test go-to-definition and code actions through the GUI. Keep any
 dependency acquisition within free hosted build constraints and the office
