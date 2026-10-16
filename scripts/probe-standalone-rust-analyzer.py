@@ -18,6 +18,9 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
+import urllib.request
+from urllib.parse import urlparse
 
 
 INVALID = 'use std::io::Read;\nfn main() { let value: i32 = "wrong"; println!("{value}"); }'
@@ -26,6 +29,9 @@ DEFAULT_OPTIONS = {"checkOnSave": False, "serverPath": "rust-analyzer"}
 DISABLED_OPTIONS = {**DEFAULT_OPTIONS, "cargo": {"buildScripts": {"enable": False}},
                     "procMacro": {"enable": False}}
 MAX_FRAME = 2 * 1024 * 1024
+PRIOR_TOOLCHAIN = "1.98.1"
+PRIOR_TARGET = "x86_64-pc-windows-msvc"
+PRIOR_MANIFEST = f"https://static.rust-lang.org/dist/channel-rust-{PRIOR_TOOLCHAIN}.toml"
 
 
 def write_frame(stream, message):
@@ -64,10 +70,12 @@ def is_reply(message, request_id):
 
 
 class Client:
-    def __init__(self, argv, root, deadline, case):
+    def __init__(self, argv, root, deadline, case, toolchain=None):
         env = os.environ.copy()
         env["CARGO_NET_OFFLINE"] = "true"
         env["RA_LOG"] = "rust_analyzer=warn"
+        if toolchain:
+            env["RUSTUP_TOOLCHAIN"] = toolchain
         self.process = subprocess.Popen(
             argv,
             cwd=root,
@@ -258,15 +266,16 @@ def request_analyzer_status(client, source_uri, request_id, phase):
 
 
 def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds=155,
-              expect_collisions=False):
+              expect_collisions=False, toolchain=None):
     root, source = make_fixture(base)
     root_uri = root.as_uri() + "/"
     source_uri = source.as_uri()
-    client = Client(argv, root, time.monotonic() + total_seconds, case)
+    client = Client(argv, root, time.monotonic() + total_seconds, case, toolchain)
     stages = {"initial_error": False, "valid_removes_error": None, "reintroduced_error": False}
     valid_v2_published = False
     statuses = []
-    print("CODESTRIKE_STANDALONE_FIXTURE=" + case + ";rust-cargo;options:" +
+    print("CODESTRIKE_STANDALONE_FIXTURE=" + case + ";rust-cargo;toolchain:" +
+          (toolchain or "runner-default") + ";options:" +
           json.dumps(options, separators=(",", ":")), flush=True)
     try:
         client.send("initialize", {
@@ -409,15 +418,59 @@ def fake_server():
             return
 
 
+def prior_component_available(manifest):
+    component = manifest.get("pkg", {}).get("rust-analyzer", {}).get("target", {}).get(PRIOR_TARGET, {})
+    artifact_url = component.get("url", "")
+    return component.get("available") is True and urlparse(artifact_url).hostname == "static.rust-lang.org"
+
+
+def verify_prior_manifest():
+    if sys.platform != "win32":
+        raise RuntimeError("The prior-component availability check is Windows-only")
+    with urllib.request.urlopen(PRIOR_MANIFEST, timeout=15) as response:
+        manifest_bytes = response.read(8 * 1024 * 1024 + 1)
+    if len(manifest_bytes) > 8 * 1024 * 1024:
+        raise RuntimeError("Official Rust distribution manifest exceeded the metadata bound")
+    manifest = tomllib.loads(manifest_bytes.decode("utf-8"))
+    if not prior_component_available(manifest):
+        raise RuntimeError("Official prior rust-analyzer Windows component is unavailable in the pinned release manifest")
+    print("CODESTRIKE_PRIOR_COMPONENT_AVAILABLE=" + PRIOR_TOOLCHAIN + ";target:" + PRIOR_TARGET +
+          ";manifest-date:" + str(manifest.get("date", "unknown")), flush=True)
+
+
+def analyzer_version(server, toolchain):
+    env = os.environ.copy()
+    if toolchain:
+        env["RUSTUP_TOOLCHAIN"] = toolchain
+    result = subprocess.run([server, "--version"], env=env, capture_output=True,
+                            text=True, timeout=12, check=True)
+    version = result.stdout.strip()
+    expected = "rust-analyzer " + (toolchain or "1.99.0") + " "
+    if not version.startswith(expected):
+        raise RuntimeError(f"Expected {expected.strip()} but found {version[:120]}")
+    return version
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--fake-server", action="store_true")
+    parser.add_argument("--check-prior-availability", action="store_true")
+    parser.add_argument("--compare-versions", action="store_true")
     args = parser.parse_args()
     if args.fake_server:
         fake_server()
         return 0
+    if args.check_prior_availability:
+        verify_prior_manifest()
+        return 0
     if args.self_test:
+        manifest = tomllib.loads('date = "2026-09-03"\n[pkg.rust-analyzer.target.x86_64-pc-windows-msvc]\n'
+                                 'available = true\nurl = "https://static.rust-lang.org/dist/fixture.tar.xz"\n')
+        assert prior_component_available(manifest)
+        manifest["pkg"]["rust-analyzer"]["target"][PRIOR_TARGET]["available"] = False
+        assert not prior_component_available(manifest)
+        print("CODESTRIKE_STANDALONE_SELFTEST=official-manifest-preflight-passed", flush=True)
         class FragmentedStream(io.BytesIO):
             def read(self, count=-1):
                 return super().read(min(count, 2))
@@ -441,6 +494,23 @@ def main():
     if not server:
         raise RuntimeError("Official rust-analyzer component is unavailable on this hosted runner")
     base = Path(tempfile.mkdtemp(prefix="codestrike-standalone-ra-", dir=os.environ.get("RUNNER_TEMP")))
+    if args.compare_versions:
+        versions = {"current": analyzer_version(server, None),
+                    "prior": analyzer_version(server, PRIOR_TOOLCHAIN)}
+        print("CODESTRIKE_VERSION_CONTROL_BINARIES=" + json.dumps(versions, separators=(",", ":")), flush=True)
+        results = {}
+        for case, toolchain in (("current_1", None), ("prior_1", PRIOR_TOOLCHAIN),
+                                ("current_2", None), ("prior_2", PRIOR_TOOLCHAIN)):
+            try:
+                results[case] = run_probe([server], base, case=case, toolchain=toolchain)
+            except Exception as exc:
+                results[case] = False
+                print("CODESTRIKE_STANDALONE_CASE_ERROR=" + case + ";" + str(exc)[:300], flush=True)
+        candidate = all(results[name] for name in ("prior_1", "prior_2")) and not any(
+            results[name] for name in ("current_1", "current_2"))
+        print("CODESTRIKE_VERSION_COMPARISON=" + json.dumps({"runs": results,
+              "candidate_compatibility_pin": candidate}, separators=(",", ":")), flush=True)
+        return 0 if all(results.values()) else 1
     results = {}
     for case, options in (("default", DEFAULT_OPTIONS), ("disabled", DISABLED_OPTIONS)):
         try:

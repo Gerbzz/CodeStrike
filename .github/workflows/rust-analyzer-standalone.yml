@@ -14,7 +14,7 @@ permissions:
 jobs:
   standalone-rust-analyzer:
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 14
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,10 +35,25 @@ jobs:
           }
           $analyzer
           python --version
+      - name: Check prior official Windows component before installation
+        shell: pwsh
+        run: python scripts/probe-standalone-rust-analyzer.py --check-prior-availability
+      - name: Install only the prior official rustup toolchain on hosted runner
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rust-analyzer
+          $priorRustc = rustc +1.98.1 --version
+          $priorAnalyzer = rust-analyzer +1.98.1 --version
+          if ($priorRustc -notmatch '^rustc 1\.98\.1 ' -or
+              $priorAnalyzer -notmatch '^rust-analyzer 1\.98\.1 ') {
+            throw "Prior toolchain version mismatch: $priorRustc; $priorAnalyzer"
+          }
+          $priorRustc
+          $priorAnalyzer
       - name: Verify bounded LSP client against synthetic server
         shell: pwsh
         run: python scripts/probe-standalone-rust-analyzer.py --self-test
-      - name: Toggle actual Rust type error through standalone LSP
+      - name: Compare pinned and preceding stable Rust analyzers
         shell: pwsh
-        timeout-minutes: 6
-        run: python scripts/probe-standalone-rust-analyzer.py
+        timeout-minutes: 12
+        run: python scripts/probe-standalone-rust-analyzer.py --compare-versions
