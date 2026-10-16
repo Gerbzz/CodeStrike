@@ -187,3 +187,16 @@ is `CODESTRIKE_ACCEPTANCE_CLEAN_RELOAD=external-reload-and-save-passed`.
 This verifies one Windows clean reload and later save, not every filesystem
 watcher event or cross-platform path form. Full save/recovery acceptance above
 remains pending for crash interruption and broader external-write cases.
+
+## Opt-in local Rust diagnostics
+
+The [Windows language-tooling run 38953240177](https://github.com/Gerbzz/CodeStrike/actions/runs/38953240177),
+job `117149602450`, passed at commit `046f0baff78e1015fa3759de2f51e89bdf5652ab`.
+It built the pinned Apache-2.0 Rust Volt on the hosted runner and used an
+explicitly installed rust-analyzer `1.99.0`. CodeStrike opened a disposable
+Cargo workspace, sent `initialize` and `didOpen`, and received an `E0308`
+diagnostic for an intentional type error. The bounded GUI screenshot shows
+the open file and one error indicator. The server and Volt remain opt-in;
+neither is bundled or enabled by default. Completion, definition, code
+actions, absent-server behavior, and clean-machine installation remain
+pending. See [exact setup and provenance](LOCAL_LANGUAGE_TOOLS.md).

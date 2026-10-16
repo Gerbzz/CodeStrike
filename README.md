@@ -98,7 +98,7 @@ This follows the [tested Windows workflow](.github/workflows/editor-candidate.ym
 | --- | --- | --- |
 | Local folders and files | Open, edit, guarded save; one active file | Three-tab save and reopen path verified on Windows |
 | Search and replacement | Workspace search and per-file commands | Exact hit caret, per-file Replace All, bounded two-file preview/Apply/Undo verified |
-| Language tooling | Explicit offline Cargo Check/Build/Test | LSP route exists; completion and diagnostics remain unverified |
+| Language tooling | Explicit offline Cargo Check/Build/Test | Opt-in local rust-analyzer diagnostic path verified on Windows; completion, definition, and code actions pending |
 | Distribution | Source build on Windows | Source build and CI only; no installer or release |
 
 The [candidate acceptance matrix](docs/migration/ACCEPTANCE.md) records the tested cases and open gates. CodeStrike is still an engineering preview, not a VS Code replacement ready for everyday professional work.
