@@ -63,10 +63,12 @@ other language-tooling behaviors.
 job `117170803799`, passed every step on follow-up code commit
 `a081c5864171345cdc63c739aaad6584459b4cae`. The GUI opened a Rust
 file with the incomplete import `use std::io::Re;`, requested completion,
-displayed `Read` at the top of the menu, selected it, and saved the exact
-expected bytes containing `use std::io::Read;`. An E0308 diagnostic passed
-again. This is targeted regression coverage for the new `GetCompletion`
-handler and one completion insertion, not every Rust completion shape.
+displayed `Read` at the top of the menu, selected it, and saved the expected
+decoded source text containing `use std::io::Read;`. That probe compared text,
+not encoding or byte identity. An E0308 diagnostic passed again. This is
+targeted regression coverage for the new `GetCompletion` handler and one
+completion insertion, not every Rust completion shape. The follow-up probe
+now compares expected UTF-8 bytes directly; its hosted result is pending.
 
 The same run explicitly set the pinned Volt's `serverPath` to a unique
 nonexistent executable. Source inspection confirms this configuration takes

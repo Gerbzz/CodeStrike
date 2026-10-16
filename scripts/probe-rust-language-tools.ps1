@@ -36,6 +36,7 @@ edition = "2021"
 '@)
 $source = Join-Path $src 'main.rs'
 $expectedSource = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }"
+$expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource)
 [System.IO.File]::WriteAllText($source, $expectedSource.Replace('::Read;', '::Re;'))
 [System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
 [lapce-rust]
@@ -134,18 +135,26 @@ try {
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     Start-Sleep -Milliseconds 500
     [System.Windows.Forms.SendKeys]::SendWait('^s')
-    $savedExpectedSource = $false
+    $savedExpectedBytes = $false
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
         Start-Sleep -Milliseconds 500
-        if ([System.IO.File]::ReadAllText($source) -ceq $expectedSource) {
-            $savedExpectedSource = $true
-            break
+        $savedBytes = [System.IO.File]::ReadAllBytes($source)
+        if ($savedBytes.Length -eq $expectedBytes.Length) {
+            $savedExpectedBytes = $true
+            for ($index = 0; $index -lt $expectedBytes.Length; $index++) {
+                if ($savedBytes[$index] -ne $expectedBytes[$index]) {
+                    $savedExpectedBytes = $false
+                    break
+                }
+            }
+            if ($savedExpectedBytes) { break }
         }
     }
-    if (-not $savedExpectedSource) {
-        throw "Completion selection did not save the expected exact Rust source: $([System.IO.File]::ReadAllText($source))"
+    if (-not $savedExpectedBytes) {
+        $actualHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+        throw "Completion selection did not save the expected UTF-8 bytes; actual SHA-256: $actualHash"
     }
-    'CODESTRIKE_LSP_COMPLETION_INSERTION=read-saved-exact-bytes'
+    'CODESTRIKE_LSP_COMPLETION_INSERTION=read-saved-exact-utf8-bytes'
 
     if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
         throw 'CodeStrike did not close cleanly after the diagnostic capture.'

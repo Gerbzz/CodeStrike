@@ -214,7 +214,8 @@ absent-server behavior, and clean-machine installation remained pending. See
 The follow-up [Windows run 38959531604](https://github.com/Gerbzz/CodeStrike/actions/runs/38959531604),
 job `117170803799`, passed at commit `a081c5864171345cdc63c739aaad6584459b4cae`.
 It selected `Read` from the visible menu for `use std::io::Re;`, saved, and
-asserted the exact expanded Rust source on disk. In a second GUI session, a
+asserted the expanded decoded Rust text on disk; that probe did not compare
+encoding or bytes. In a second GUI session, a
 unique nonexistent local server produced a visible error, the window stayed
 open, and a completion/save attempt left the source hash unchanged. Both
 screenshots are bounded app-window captures in the hosted log. This tests
