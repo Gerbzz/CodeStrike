@@ -90,7 +90,7 @@ Copy-Item .\editor\lapce\target\debug\lapce.exe .\editor\lapce\target\debug\Code
 .\editor\lapce\target\debug\CodeStrike.exe --wait
 ```
 
-Until PR #1 is integrated into the default branch, add `--branch draft/lapce-foundation-migration` to the clone command. This follows the [tested Windows workflow](https://github.com/Gerbzz/CodeStrike/blob/draft/lapce-foundation-migration/.github/workflows/editor-candidate.yml); it is a developer build, not an installer. The tested debug executable was 111.41 MiB, but release and installed footprints have not been measured. If a checkout converts the pinned upstream source to CRLF, the patch preparation will refuse it; use a fresh LF checkout rather than applying the patch to modified files.
+This follows the [tested Windows workflow](.github/workflows/editor-candidate.yml); it is a developer build, not an installer. The latest full acceptance run measured a 103.75 MiB debug executable, but release and installed footprints have not been measured. If a checkout converts the pinned upstream source to CRLF, the patch preparation will refuse it; use a fresh LF checkout rather than applying the patch to modified files.
 
 ## Status and roadmap
 

@@ -36,12 +36,16 @@ $start.ArgumentList.Add($volt)
 $start.ArgumentList.Add($fixture)
 $start.ArgumentList.Add($source)
 $start.UseShellExecute = $false
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
 $start.Environment['APPDATA'] = $appData
 $start.Environment['LOCALAPPDATA'] = $localData
 $start.Environment['CARGO_NET_OFFLINE'] = 'true'
 $start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=debug,lapce_app=info'
 $process = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $process) { throw 'Windows did not start CodeStrike.' }
+$stdoutTask = $process.StandardOutput.ReadToEndAsync()
+$stderrTask = $process.StandardError.ReadToEndAsync()
 
 try {
     $foundWindow = $false
@@ -57,49 +61,11 @@ try {
     if (-not $foundWindow) { throw 'CodeStrike did not expose a window within 120 seconds.' }
     "CODESTRIKE_LSP_WINDOW=opened;pid:$($process.Id)"
 
-    $diagnostics = $false
-    $sawInitialize = $false
-    $lastLog = ''
-    $profileLocal = [Environment]::GetFolderPath('LocalApplicationData')
-    $profileRoaming = [Environment]::GetFolderPath('ApplicationData')
-    $logRoots = @($localData, (Join-Path $profileLocal 'ArtCraft'), (Join-Path $profileRoaming 'ArtCraft')) |
-        Select-Object -Unique
-    $seenLogPaths = [System.Collections.Generic.HashSet[string]]::new()
-    for ($attempt = 0; $attempt -lt 150; $attempt++) {
-        Start-Sleep -Seconds 1
-        $process.Refresh()
-        if ($process.HasExited) { throw "CodeStrike exited while waiting for diagnostics: $($process.ExitCode)." }
-        $logs = @($logRoots | Where-Object { Test-Path -LiteralPath $_ } |
-            ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -File -Filter '*.log' -ErrorAction SilentlyContinue })
-        foreach ($log in $logs) {
-            $seenLogPaths.Add($log.FullName) | Out-Null
-            try { $lastLog = [System.IO.File]::ReadAllText($log.FullName) } catch { continue }
-            if ($lastLog.Contains('"method":"initialize"')) { $sawInitialize = $true }
-            if ($lastLog.Contains('textDocument/publishDiagnostics') -and
-                ($lastLog.Contains('E0308') -or $lastLog.Contains('mismatched types'))) {
-                $diagnostics = $true
-                break
-            }
-        }
-        if ($diagnostics) { break }
-    }
-    if (-not $sawInitialize -or -not $diagnostics) {
-        "CODESTRIKE_LSP_LOG_PATHS=$($seenLogPaths -join ';')"
-        $debugLines = @()
-        foreach ($logPath in $seenLogPaths) {
-            try {
-                $debugLines += @([System.IO.File]::ReadAllLines($logPath) |
-                    Where-Object { $_ -match 'lapce-rust|rust-analyzer|publishDiagnostics|plugin|ERROR' })
-            } catch { continue }
-        }
-        $lines = @($debugLines | Select-Object -Last 28)
-        $lines | ForEach-Object { Write-Host "CODESTRIKE_LSP_DIAGNOSTIC_LOG=$($_.Substring(0, [Math]::Min($_.Length, 450)))" }
-    }
-    if (-not $sawInitialize) { throw 'No rust-analyzer initialize request was found in CodeStrike logs.' }
-    if (-not $diagnostics) {
-        throw 'No rust-analyzer E0308 diagnostic was observed for the real Rust fixture.'
-    }
-    'CODESTRIKE_LSP_DIAGNOSTICS=rust-analyzer-e0308-passed'
+    # The local proxy writes LSP traffic to its console stream, not the app log.
+    # Leave enough time for a fresh rust-analyzer crate graph before closing.
+    Start-Sleep -Seconds 45
+    $process.Refresh()
+    if ($process.HasExited) { throw "CodeStrike exited before the diagnostic capture: $($process.ExitCode)." }
 
     $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
@@ -126,6 +92,27 @@ try {
         $graphics.Dispose()
         $bitmap.Dispose()
     }
+
+    if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
+        throw 'CodeStrike did not close cleanly after the diagnostic capture.'
+    }
+    if (-not $stdoutTask.Wait(10000) -or -not $stderrTask.Wait(10000)) {
+        throw 'CodeStrike console capture did not complete after exit.'
+    }
+    $output = $stdoutTask.Result + "`n" + $stderrTask.Result
+    if (-not $output.Contains('"method":"initialize"')) {
+        throw 'No rust-analyzer initialize request was found in the CodeStrike console stream.'
+    }
+    $diagnosticLines = @($output -split "`n" |
+        Where-Object { $_.Contains('textDocument/publishDiagnostics') -and $_.Contains('E0308') })
+    if ($diagnosticLines.Count -eq 0) {
+        $debugLines = @($output -split "`n" |
+            Where-Object { $_ -match 'rust-analyzer|lapce-rust|publishDiagnostics|ERROR' } |
+            Select-Object -Last 20)
+        $debugLines | ForEach-Object { Write-Host "CODESTRIKE_LSP_DIAGNOSTIC_LOG=$($_.Substring(0, [Math]::Min($_.Length, 450)))" }
+        throw 'No rust-analyzer E0308 diagnostic was observed for the real Rust fixture.'
+    }
+    'CODESTRIKE_LSP_DIAGNOSTICS=rust-analyzer-e0308-passed'
 } finally {
     $process.Refresh()
     if (-not $process.HasExited) {
