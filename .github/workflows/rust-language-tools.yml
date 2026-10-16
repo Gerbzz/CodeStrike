@@ -48,7 +48,7 @@ jobs:
           cargo build --manifest-path rust-volt-source/Cargo.toml --locked --release --target wasm32-wasip1 --target-dir rust-volt-source/target
           $volt = Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt'
           New-Item -ItemType Directory -Path $volt -Force | Out-Null
-          Copy-Item rust-volt-source/target/wasm32-wasip1/release/lapce_rust.wasm (Join-Path $volt 'lapce-rust.wasm')
+          Copy-Item rust-volt-source/target/wasm32-wasip1/release/lapce-rust.wasm (Join-Path $volt 'lapce-rust.wasm')
           Copy-Item rust-volt-source/volt.toml, rust-volt-source/LICENSE, rust-volt-source/rust-logo.png $volt
           "Pinned Volt WASM bytes: $((Get-Item (Join-Path $volt 'lapce-rust.wasm')).Length)"
       - name: Prepare and compile the CodeStrike candidate
