@@ -271,12 +271,16 @@ diff --git a/lapce-app/src/editor.rs b/lapce-app/src/editor.rs
 index d878e720..51e49fbd 100644
 --- a/lapce-app/src/editor.rs
 +++ b/lapce-app/src/editor.rs
-@@ -1085,3 +1085,2 @@ pub fn run_focus_command(
+@@ -1085,4 +1085,6 @@ pub fn run_focus_command(
 -                if self.common.find.replace_active.get_untracked() {
 -                    self.common.find.replace_focus.set(true);
 -                }
 +                self.common.find.replace_active.set(true);
 +                self.common.find.replace_focus.set(true);
+             }
++            FocusCommand::GetCompletion => {
++                self.update_completion(true);
++            }
 diff --git a/lapce-app/src/editor/location.rs b/lapce-app/src/editor/location.rs
 index 35e79f56..e74885c7 100644
 --- a/lapce-app/src/editor/location.rs

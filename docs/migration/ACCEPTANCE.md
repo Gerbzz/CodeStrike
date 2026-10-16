@@ -187,3 +187,26 @@ is `CODESTRIKE_ACCEPTANCE_CLEAN_RELOAD=external-reload-and-save-passed`.
 This verifies one Windows clean reload and later save, not every filesystem
 watcher event or cross-platform path form. Full save/recovery acceptance above
 remains pending for crash interruption and broader external-write cases.
+
+## Opt-in local Rust diagnostics and completion
+
+The [Windows language-tooling run 38953240177](https://github.com/Gerbzz/CodeStrike/actions/runs/38953240177),
+job `117149602450`, passed at commit `046f0baff78e1015fa3759de2f51e89bdf5652ab`.
+It built the pinned Apache-2.0 Rust Volt on the hosted runner and used an
+explicitly installed rust-analyzer `1.99.0`. CodeStrike opened a disposable
+Cargo workspace, sent `initialize` and `didOpen`, and received an `E0308`
+diagnostic for an intentional type error. The bounded GUI screenshot shows
+the open file and one error indicator. The server and Volt remain opt-in;
+neither is bundled or enabled by default.
+
+The advertised `get_completion` command was present in the pinned keymap and
+Floem command enum but absent from Lapce's editor command handler. The draft
+patch connects it to the existing completion request path. [Windows run
+38957477121](https://github.com/Gerbzz/CodeStrike/actions/runs/38957477121),
+job `117163870747`, passed at commit `e9a1e8e9348eb9fb29dd3883c9603f905e97890f`.
+The GUI probe placed the caret within `use std::io::Read;`, invoked the
+shortcut, observed `textDocument/completion` and a `Read` item from the local
+server, and captured the visible nonempty menu. E0308 diagnostics passed again.
+Selecting/inserting an item, definition, code actions, absent-server behavior,
+and clean-machine installation remain pending. See
+[exact setup and provenance](LOCAL_LANGUAGE_TOOLS.md).

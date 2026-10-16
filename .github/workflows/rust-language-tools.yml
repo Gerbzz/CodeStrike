@@ -1,0 +1,65 @@
+name: CodeStrike local Rust language tools
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [draft/rust-language-tooling]
+    paths:
+      - .github/workflows/rust-language-tools.yml
+      - scripts/probe-rust-language-tools.ps1
+      - editor/patches/codestrike-lapce.patch
+
+permissions:
+  contents: read
+
+jobs:
+  windows-rust-lsp:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - name: Preserve pinned upstream LF source
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: lapce/lapce-rust
+          ref: ea1c8da7df318a253edf07bd2862d236951b6d80
+          path: rust-volt-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install local rust-analyzer and WASI build target
+        shell: pwsh
+        run: |
+          rustup component add rust-analyzer
+          rustup target add wasm32-wasip1
+          rust-analyzer --version
+          rustc --version
+          git -C rust-volt-source rev-parse HEAD
+      - name: Build the pinned Apache-2.0 Rust Volt
+        shell: pwsh
+        run: |
+          cargo build --manifest-path rust-volt-source/Cargo.toml --locked --release --target wasm32-wasip1 --target-dir rust-volt-source/target
+          $volt = Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt'
+          New-Item -ItemType Directory -Path $volt -Force | Out-Null
+          Copy-Item rust-volt-source/target/wasm32-wasip1/release/lapce-rust.wasm (Join-Path $volt 'lapce-rust.wasm')
+          Copy-Item rust-volt-source/volt.toml, rust-volt-source/LICENSE, rust-volt-source/rust-logo.png $volt
+          "Pinned Volt WASM bytes: $((Get-Item (Join-Path $volt 'lapce-rust.wasm')).Length)"
+      - name: Prepare and compile the CodeStrike candidate
+        shell: pwsh
+        run: |
+          .\scripts\prepare-lapce.ps1
+          cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
+          Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
+          $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
+          "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
+      - name: Verify local Rust diagnostics and completion in the GUI workspace
+        shell: pwsh
+        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
