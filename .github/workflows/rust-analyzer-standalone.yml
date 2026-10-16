@@ -14,7 +14,7 @@ permissions:
 jobs:
   standalone-rust-analyzer:
     runs-on: windows-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,5 +40,5 @@ jobs:
         run: python scripts/probe-standalone-rust-analyzer.py --self-test
       - name: Toggle actual Rust type error through standalone LSP
         shell: pwsh
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: python scripts/probe-standalone-rust-analyzer.py
