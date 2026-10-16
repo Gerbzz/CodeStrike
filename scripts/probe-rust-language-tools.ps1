@@ -6,6 +6,8 @@ Add-Type -AssemblyName System.Drawing
 if (-not ('CodeStrikeLspWindow' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 public static class CodeStrikeLspWindow {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
@@ -14,6 +16,22 @@ public static class CodeStrikeLspWindow {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+    private static readonly ConcurrentQueue<string> Output = new ConcurrentQueue<string>();
+    public static void BeginCapture(Process process) {
+        process.OutputDataReceived += (sender, e) => { if (e.Data != null) Output.Enqueue(e.Data); };
+        process.ErrorDataReceived += (sender, e) => { if (e.Data != null) Output.Enqueue(e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+    }
+    public static bool HasOutput(string text) {
+        foreach (string line in Output) if (line.Contains(text)) return true;
+        return false;
+    }
+    public static bool HasOutputLine(string first, string second) {
+        foreach (string line in Output) if (line.Contains(first) && line.Contains(second)) return true;
+        return false;
+    }
+    public static string CapturedOutput() { return string.Join("\n", Output.ToArray()); }
 }
 '@
 }
@@ -60,8 +78,7 @@ $start.Environment['CARGO_NET_OFFLINE'] = 'true'
 $start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=debug,lapce_app=info'
 $process = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $process) { throw 'Windows did not start CodeStrike.' }
-$stdoutTask = $process.StandardOutput.ReadToEndAsync()
-$stderrTask = $process.StandardError.ReadToEndAsync()
+[CodeStrikeLspWindow]::BeginCapture($process)
 
 try {
     $foundWindow = $false
@@ -77,11 +94,25 @@ try {
     if (-not $foundWindow) { throw 'CodeStrike did not expose a window within 120 seconds.' }
     "CODESTRIKE_LSP_WINDOW=opened;pid:$($process.Id)"
 
-    # The local proxy writes LSP traffic to its console stream, not the app log.
-    # Leave enough time for a fresh rust-analyzer crate graph before closing.
-    Start-Sleep -Seconds 45
-    $process.Refresh()
-    if ($process.HasExited) { throw "CodeStrike exited before the diagnostic capture: $($process.ExitCode)." }
+    # Wait for the real diagnostic; a fixed sleep can finish during the crate graph.
+    $diagnosticReady = $false
+    for ($attempt = 0; $attempt -lt 150; $attempt++) {
+        if ([CodeStrikeLspWindow]::HasOutputLine('textDocument/publishDiagnostics', 'E0308')) {
+            $diagnosticReady = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+        $process.Refresh()
+        if ($process.HasExited) { throw "CodeStrike exited before rust-analyzer diagnostics: $($process.ExitCode)." }
+    }
+    if (-not $diagnosticReady) {
+        $debugLines = @([CodeStrikeLspWindow]::CapturedOutput() -split "`n" |
+            Where-Object { $_ -match 'rust-analyzer|lapce-rust|publishDiagnostics|ERROR' } |
+            Select-Object -Last 20)
+        $debugLines | ForEach-Object { Write-Host "CODESTRIKE_LSP_DIAGNOSTIC_WAIT_LOG=$($_.Substring(0, [Math]::Min($_.Length, 450)))" }
+        throw 'No rust-analyzer E0308 diagnostic was published within 150 seconds.'
+    }
+    "CODESTRIKE_LSP_DIAGNOSTIC_READY_AFTER_SECONDS=$attempt"
 
     [CodeStrikeLspWindow]::ShowWindow($process.MainWindowHandle, 9) | Out-Null
     if (-not [CodeStrikeLspWindow]::SetForegroundWindow($process.MainWindowHandle)) {
@@ -101,7 +132,18 @@ try {
     [System.Windows.Forms.SendKeys]::SendWait('{END}')
     [System.Windows.Forms.SendKeys]::SendWait('{LEFT 1}')
     [System.Windows.Forms.SendKeys]::SendWait('^i')
-    Start-Sleep -Seconds 8
+    $completionReady = $false
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        if ([CodeStrikeLspWindow]::HasOutput('"label":"Read"')) {
+            $completionReady = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+        $process.Refresh()
+        if ($process.HasExited) { throw 'CodeStrike exited before Rust completion arrived.' }
+    }
+    if (-not $completionReady) { throw 'No Read completion arrived within 30 seconds.' }
+    Start-Sleep -Seconds 2
     'CODESTRIKE_LSP_COMPLETION_KEYS=sent'
 
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -159,10 +201,8 @@ try {
     if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
         throw 'CodeStrike did not close cleanly after the diagnostic capture.'
     }
-    if (-not $stdoutTask.Wait(10000) -or -not $stderrTask.Wait(10000)) {
-        throw 'CodeStrike console capture did not complete after exit.'
-    }
-    $output = $stdoutTask.Result + "`n" + $stderrTask.Result
+    $process.WaitForExit()
+    $output = [CodeStrikeLspWindow]::CapturedOutput()
     if (-not $output.Contains('"method":"initialize"')) {
         throw 'No rust-analyzer initialize request was found in the CodeStrike console stream.'
     }
