@@ -118,7 +118,7 @@ try {
         $bitmap.Dispose()
     }
 
-    [CodeStrikeMissingServerWindow]::SetCursorPos($rect.Left + [int]($width * 0.6), $rect.Top + [int]($height * 0.2)) | Out-Null
+    [CodeStrikeMissingServerWindow]::SetCursorPos($rect.Left + [int]($width * 0.4), $rect.Top + [int]($height * 0.2)) | Out-Null
     [CodeStrikeMissingServerWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
     [CodeStrikeMissingServerWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
     [System.Windows.Forms.SendKeys]::SendWait('^i')

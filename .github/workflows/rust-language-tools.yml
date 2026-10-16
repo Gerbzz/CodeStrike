@@ -3,12 +3,27 @@ name: CodeStrike local Rust language tools
 on:
   workflow_dispatch:
   push:
-    branches: [draft/rust-language-tooling, draft/rust-language-acceptance]
+    branches: [main]
     paths:
       - .github/workflows/rust-language-tools.yml
+      - editor/lapce
+      - editor/patches/**
+      - scripts/prepare-lapce.ps1
       - scripts/probe-rust-language-tools.ps1
       - scripts/probe-missing-rust-server.ps1
-      - editor/patches/codestrike-lapce.patch
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/rust-language-tools.yml
+      - editor/lapce
+      - editor/patches/**
+      - scripts/prepare-lapce.ps1
+      - scripts/probe-rust-language-tools.ps1
+      - scripts/probe-missing-rust-server.ps1
+
+concurrency:
+  group: codestrike-rust-lsp-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
