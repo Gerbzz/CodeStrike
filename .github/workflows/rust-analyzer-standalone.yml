@@ -1,0 +1,59 @@
+name: CodeStrike standalone rust-analyzer control
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/rust-analyzer-standalone.yml
+      - scripts/probe-standalone-rust-analyzer.py
+
+permissions:
+  contents: read
+
+jobs:
+  standalone-rust-analyzer:
+    runs-on: windows-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/probe-standalone-rust-analyzer.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Match official rust-analyzer version from retained GUI run
+        shell: pwsh
+        run: |
+          $rustc = rustc --version
+          if ($rustc -notmatch '^rustc 1\.99\.0 \(b940084d7 ') {
+            throw "Hosted toolchain differs from GUI run 38975570543: $rustc"
+          }
+          rustup component add rust-analyzer
+          $analyzer = rust-analyzer --version
+          if ($analyzer -notmatch '^rust-analyzer 1\.99\.0 \(b940084d ') {
+            throw "rust-analyzer differs from GUI run 38975570543: $analyzer"
+          }
+          $analyzer
+          python --version
+      - name: Check prior official Windows component before installation
+        shell: pwsh
+        run: python scripts/probe-standalone-rust-analyzer.py --check-prior-availability
+      - name: Install only the prior official rustup toolchain on hosted runner
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rust-analyzer
+          $priorRustc = rustc +1.98.1 --version
+          $priorAnalyzer = rust-analyzer +1.98.1 --version
+          if ($priorRustc -notmatch '^rustc 1\.98\.1 ' -or
+              $priorAnalyzer -notmatch '^rust-analyzer 1\.98\.1 ') {
+            throw "Prior toolchain version mismatch: $priorRustc; $priorAnalyzer"
+          }
+          $priorRustc
+          $priorAnalyzer
+      - name: Verify bounded LSP client against synthetic server
+        shell: pwsh
+        run: python scripts/probe-standalone-rust-analyzer.py --self-test
+      - name: Compare pinned and preceding stable Rust analyzers
+        shell: pwsh
+        timeout-minutes: 12
+        run: python scripts/probe-standalone-rust-analyzer.py --compare-versions

@@ -1,0 +1,528 @@
+"""Bounded, fixture-only LSP control for CodeStrike's hosted Rust GUI evidence.
+
+Uses Python's standard library and the runner's official rust-analyzer component.
+No CodeStrike, Lapce, Volt, or user workspace is loaded.
+"""
+
+import argparse
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import queue
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import tomllib
+import urllib.request
+from urllib.parse import urlparse
+
+
+INVALID = 'use std::io::Read;\nfn main() { let value: i32 = "wrong"; println!("{value}"); }'
+VALID = 'use std::io::Read;\nfn main() { let value: i32 = 7; println!("{value}"); }'
+DEFAULT_OPTIONS = {"checkOnSave": False, "serverPath": "rust-analyzer"}
+DISABLED_OPTIONS = {**DEFAULT_OPTIONS, "cargo": {"buildScripts": {"enable": False}},
+                    "procMacro": {"enable": False}}
+MAX_FRAME = 2 * 1024 * 1024
+PRIOR_TOOLCHAIN = "1.98.1"
+PRIOR_TARGET = "x86_64-pc-windows-msvc"
+PRIOR_MANIFEST = f"https://static.rust-lang.org/dist/channel-rust-{PRIOR_TOOLCHAIN}.toml"
+
+
+def write_frame(stream, message):
+    body = json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    stream.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body)
+    stream.flush()
+
+
+def read_frame(stream):
+    headers = {}
+    while True:
+        line = stream.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        name, separator, value = line.partition(b":")
+        if not separator:
+            raise ValueError("Malformed LSP header")
+        headers[name.strip().lower()] = value.strip()
+    length = int(headers[b"content-length"])
+    if length < 0 or length > MAX_FRAME:
+        raise ValueError("LSP frame exceeds fixture bound")
+    body = bytearray()
+    while len(body) < length:
+        chunk = stream.read(length - len(body))
+        if not chunk:
+            raise EOFError("Truncated LSP frame")
+        body.extend(chunk)
+    return json.loads(body)
+
+
+def is_reply(message, request_id):
+    return (message.get("id") == request_id and "method" not in message
+            and ("result" in message or "error" in message))
+
+
+class Client:
+    def __init__(self, argv, root, deadline, case, toolchain=None):
+        env = os.environ.copy()
+        env["CARGO_NET_OFFLINE"] = "true"
+        env["RA_LOG"] = "rust_analyzer=warn"
+        if toolchain:
+            env["RUSTUP_TOOLCHAIN"] = toolchain
+        self.process = subprocess.Popen(
+            argv,
+            cwd=root,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+        self.root = root
+        self.case = case
+        self.deadline = deadline
+        self.inbox = queue.Queue()
+        self.diagnostics = []
+        self.requests = []
+        self.progress = []
+        self.server_status = []
+        self.shutdown_reply_seen = False
+        self.stderr = bytearray()
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+        threading.Thread(target=self._read_stderr, daemon=True).start()
+
+    def _read_stdout(self):
+        try:
+            while True:
+                message = read_frame(self.process.stdout)
+                if message is None:
+                    self.inbox.put(("eof", None))
+                    return
+                self.inbox.put(("message", message))
+        except Exception as exc:
+            self.inbox.put(("error", str(exc)))
+
+    def _read_stderr(self):
+        while True:
+            chunk = self.process.stderr.read(4096)
+            if not chunk:
+                return
+            if len(self.stderr) < 8192:
+                self.stderr.extend(chunk[: 8192 - len(self.stderr)])
+
+    def send(self, method, params, request_id=None):
+        message = {"jsonrpc": "2.0", "method": method, "params": params}
+        if request_id is not None:
+            message["id"] = request_id
+        write_frame(self.process.stdin, message)
+
+    def _handle(self, message, source_uri):
+        if "method" in message and "id" in message:
+            method = message["method"]
+            self.requests.append(method)
+            if method == "workspace/configuration":
+                result = [None for _ in message.get("params", {}).get("items", [])]
+            elif method == "workspace/workspaceFolders":
+                result = [{"uri": self.root.as_uri(), "name": self.root.name}]
+            elif method in ("window/workDoneProgress/create", "client/registerCapability"):
+                result = None
+            else:
+                write_frame(self.process.stdin, {
+                    "jsonrpc": "2.0", "id": message["id"],
+                    "error": {"code": -32601, "message": "Method not supported by bounded probe"},
+                })
+                return
+            write_frame(self.process.stdin, {"jsonrpc": "2.0", "id": message["id"], "result": result})
+        elif message.get("method") == "textDocument/publishDiagnostics":
+            params = message.get("params", {})
+            uri = params.get("uri", "")
+            if uri.casefold() != source_uri.casefold():
+                return
+            codes = [item.get("code") for item in params.get("diagnostics", [])]
+            observation = {"version": params.get("version"), "codes": codes}
+            self.diagnostics.append(observation)
+            self.diagnostics = self.diagnostics[-64:]
+            print("CODESTRIKE_STANDALONE_DIAGNOSTIC=" + self.case + ";" +
+                  json.dumps(observation, separators=(",", ":")), flush=True)
+        elif message.get("method") == "$/progress":
+            params = message.get("params", {})
+            value = params.get("value", {})
+            if isinstance(value, dict) and value.get("kind") in ("begin", "end"):
+                observation = {"token": str(params.get("token"))[:90], "kind": value["kind"],
+                               "title": str(value.get("title", ""))[:90],
+                               "message": str(value.get("message", ""))[:140]}
+                self.progress.append(observation)
+                self.progress = self.progress[-64:]
+                if len(self.progress) <= 24:
+                    print("CODESTRIKE_STANDALONE_PROGRESS=" + self.case + ";" +
+                          json.dumps(observation, separators=(",", ":")), flush=True)
+        elif message.get("method") == "experimental/serverStatus":
+            params = message.get("params", {})
+            observation = {"health": params.get("health"), "quiescent": params.get("quiescent"),
+                           "message": str(params.get("message", ""))[:140]}
+            self.server_status.append(observation)
+            self.server_status = self.server_status[-24:]
+            if len(self.server_status) <= 12:
+                print("CODESTRIKE_STANDALONE_SERVER_STATUS=" + self.case + ";" +
+                      json.dumps(observation, separators=(",", ":")), flush=True)
+
+    def wait_for(self, predicate, source_uri, seconds, description):
+        end = min(self.deadline, time.monotonic() + seconds)
+        while time.monotonic() < end:
+            try:
+                kind, value = self.inbox.get(timeout=min(0.5, max(0.01, end - time.monotonic())))
+            except queue.Empty:
+                if self.process.poll() is not None:
+                    raise RuntimeError(f"Server exited while waiting for {description}: {self.process.returncode}")
+                continue
+            if kind != "message":
+                raise RuntimeError(f"LSP reader {kind} while waiting for {description}: {value}")
+            self._handle(value, source_uri)
+            if predicate(value):
+                return value
+        raise TimeoutError(f"No {description} within {seconds}s")
+
+    def close(self, source_uri):
+        if self.process.poll() is None:
+            try:
+                self.send("shutdown", {}, request_id=99)
+                response = self.wait_for(lambda msg: is_reply(msg, 99), source_uri, 3, "shutdown response")
+                self.shutdown_reply_seen = "result" in response
+                if not self.shutdown_reply_seen:
+                    raise RuntimeError("Shutdown did not return a result response")
+                self.send("exit", {})
+                self.process.wait(timeout=3)
+            except (BrokenPipeError, OSError, TimeoutError, subprocess.TimeoutExpired, RuntimeError):
+                self.process.kill()
+                self.process.wait(timeout=3)
+        for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+            stream.close()
+
+
+def make_fixture(base):
+    root = base / "fixture"
+    source = root / "src" / "main.rs"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    (root / "Cargo.toml").write_bytes(b'[package]\nname = "codestrike_lsp_fixture"\nversion = "0.1.0"\nedition = "2021"\n')
+    source.write_bytes(INVALID.encode("utf-8"))
+    return root, source
+
+
+def diag_at(message, uri, version, has_error):
+    if message.get("method") != "textDocument/publishDiagnostics":
+        return False
+    params = message.get("params", {})
+    if params.get("uri", "").casefold() != uri.casefold() or params.get("version") != version:
+        return False
+    codes = [entry.get("code") for entry in params.get("diagnostics", [])]
+    return ("E0308" in codes) == has_error
+
+
+def summarize_analyzer_status(value, root):
+    if not isinstance(value, str):
+        return {"unexpected_result_type": type(value).__name__}
+    workspaces = value.split("\nAnalysis:\n", 1)[0]
+    analysis = value.split("\nAnalysis:\n", 1)[-1].split("\nVersion: \n", 1)[0]
+    version = value.split("\nVersion: \n", 1)[-1].split("\nConfiguration: \n", 1)[0]
+    configuration = value.split("\nConfiguration: \n", 1)[-1]
+    loaded = re.search(r"Loaded \d+ packages? across \d+ workspaces?", workspaces)
+    root_text = str(root).replace("/", "\\").casefold()
+    normalized_workspaces = workspaces.replace("\\\\", "\\").replace("/", "\\").casefold()
+    has_root = root_text in normalized_workspaces
+
+    def redact(text):
+        text = text.replace(str(root), "<fixture>").replace(str(root).replace("\\", "/"), "<fixture>")
+        return re.sub(r"[A-Za-z]:[/\\][^\s,\]]+", "<path>", text)
+
+    relevant = [redact(line.strip())[:150] for line in configuration.splitlines()
+                if re.search(r"cargo|build.?scripts|proc.?macro|check.?on.?save", line, re.I)]
+    return {"loaded": loaded.group(0) if loaded else None,
+            "workspace_root_mentions_fixture": has_root,
+            "analysis_excerpt": redact(analysis.strip())[:420],
+            "version": version.strip()[:120],
+            "configuration_relevant": relevant[:20],
+            "configuration_chars": len(configuration)}
+
+
+def request_analyzer_status(client, source_uri, request_id, phase):
+    client.send("rust-analyzer/analyzerStatus", {"textDocument": {"uri": source_uri}}, request_id)
+    try:
+        response = client.wait_for(lambda msg: is_reply(msg, request_id), source_uri, 6,
+                                   f"{phase} analyzerStatus response")
+        summary = ({"error": str(response["error"])[:220]} if "error" in response else
+                   summarize_analyzer_status(response.get("result"), client.root))
+    except TimeoutError:
+        summary = {"timeout_seconds": 6}
+    print("CODESTRIKE_STANDALONE_ANALYZER_STATUS=" + client.case + ";" + phase + ";" +
+          json.dumps(summary, separators=(",", ":")), flush=True)
+    return summary
+
+
+def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds=155,
+              expect_collisions=False, toolchain=None):
+    root, source = make_fixture(base)
+    root_uri = root.as_uri() + "/"
+    source_uri = source.as_uri()
+    client = Client(argv, root, time.monotonic() + total_seconds, case, toolchain)
+    stages = {"initial_error": False, "valid_removes_error": None, "reintroduced_error": False}
+    valid_v2_published = False
+    statuses = []
+    print("CODESTRIKE_STANDALONE_FIXTURE=" + case + ";rust-cargo;toolchain:" +
+          (toolchain or "runner-default") + ";options:" +
+          json.dumps(options, separators=(",", ":")), flush=True)
+    try:
+        client.send("initialize", {
+            "processId": os.getpid(),
+            "clientInfo": {"name": "CodeStrike standalone control", "version": "1"},
+            "rootUri": root_uri,
+            "rootPath": str(root),
+            "workspaceFolders": [{"uri": root_uri, "name": root.name}],
+            "capabilities": {
+                "workspace": {"workspaceFolders": True, "configuration": True},
+                "textDocument": {"synchronization": {"dynamicRegistration": False},
+                                 "publishDiagnostics": {"versionSupport": True}},
+                "window": {"workDoneProgress": True},
+                "experimental": {"serverStatusNotification": True},
+            },
+            "initializationOptions": options,
+        }, request_id=1)
+        response = client.wait_for(lambda msg: is_reply(msg, 1), source_uri, 35, "initialize response")
+        if "error" in response:
+            raise RuntimeError("rust-analyzer rejected initialize: " + str(response["error"])[:300])
+        if "result" not in response:
+            raise RuntimeError("Initialize did not return a result response")
+        client.send("initialized", {})
+        client.send("textDocument/didOpen", {
+            "textDocument": {"uri": source_uri, "languageId": "rust", "version": 1, "text": INVALID}
+        })
+        try:
+            client.wait_for(lambda msg: diag_at(msg, source_uri, 1, True), source_uri, 45, "initial v1 E0308")
+            stages["initial_error"] = True
+        except TimeoutError:
+            print("CODESTRIKE_STANDALONE_TIMEOUT=" + case + ";initial-v1-E0308", flush=True)
+        statuses.append(request_analyzer_status(client, source_uri, 2, "after-v1"))
+
+        source.write_bytes(VALID.encode("utf-8"))
+        client.send("textDocument/didChange", {
+            "textDocument": {"uri": source_uri, "version": 2},
+            "contentChanges": [{"text": VALID}],
+        })
+        print("CODESTRIKE_STANDALONE_CHANGE=" + case + ";version:2;diskSha256:" +
+              hashlib.sha256(source.read_bytes()).hexdigest(), flush=True)
+        if stages["initial_error"]:
+            stages["valid_removes_error"] = False
+            try:
+                client.wait_for(lambda msg: diag_at(msg, source_uri, 2, False), source_uri, 40, "valid v2 without E0308")
+                stages["valid_removes_error"] = True
+            except TimeoutError:
+                print("CODESTRIKE_STANDALONE_TIMEOUT=" + case + ";valid-v2-without-E0308", flush=True)
+        else:
+            # With no initial error to remove, an unchanged empty set can be deduplicated.
+            try:
+                client.wait_for(lambda msg: diag_at(msg, source_uri, 2, False), source_uri, 10, "valid v2 publication")
+                valid_v2_published = True
+            except TimeoutError:
+                print("CODESTRIKE_STANDALONE_VALID=" + case +
+                      ";unobserved-after-empty-v1;removal-inconclusive", flush=True)
+
+        source.write_bytes(INVALID.encode("utf-8"))
+        client.send("textDocument/didChange", {
+            "textDocument": {"uri": source_uri, "version": 3},
+            "contentChanges": [{"text": INVALID}],
+        })
+        print("CODESTRIKE_STANDALONE_CHANGE=" + case + ";version:3;diskSha256:" +
+              hashlib.sha256(source.read_bytes()).hexdigest(), flush=True)
+        try:
+            client.wait_for(lambda msg: diag_at(msg, source_uri, 3, True), source_uri, 45, "reintroduced v3 E0308")
+            stages["reintroduced_error"] = True
+        except TimeoutError:
+            print("CODESTRIKE_STANDALONE_TIMEOUT=" + case + ";reintroduced-v3-E0308", flush=True)
+        statuses.append(request_analyzer_status(client, source_uri, 3, "after-v3"))
+    finally:
+        client.close(source_uri)
+        print("CODESTRIKE_STANDALONE_RESULT=" + case + ";" + json.dumps({
+            **stages,
+            "valid_v2_published": valid_v2_published,
+            "final_version": 3,
+            "disk_matches_invalid": source.read_bytes() == INVALID.encode("utf-8"),
+            "diagnostics": client.diagnostics[-12:],
+            "progress": client.progress[-24:],
+            "server_status": client.server_status[-12:],
+            "analyzer_status": statuses,
+            "server_requests": client.requests[-12:],
+            "stderr_prefix": client.stderr.decode("utf-8", errors="replace")[:400],
+        }, separators=(",", ":")), flush=True)
+    collisions_seen = client.requests.count("window/workDoneProgress/create") >= 2
+    progress_kinds = {entry["kind"] for entry in client.progress}
+    synthetic_observability = (collisions_seen and client.shutdown_reply_seen and
+                               progress_kinds == {"begin", "end"} and
+                               len(statuses) == 2 and all(entry.get("loaded") and
+                               entry.get("workspace_root_mentions_fixture") for entry in statuses))
+    return all(stages.values()) and (not expect_collisions or synthetic_observability)
+
+
+def fake_server():
+    while True:
+        message = read_frame(sys.stdin.buffer)
+        if message is None:
+            return
+        method = message.get("method")
+        if method == "initialize":
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "id": 1,
+                                            "method": "window/workDoneProgress/create",
+                                            "params": {"token": "initialize-collision"}})
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "id": message["id"], "result": {"capabilities": {}}})
+        elif method in ("textDocument/didOpen", "textDocument/didChange"):
+            document = message["params"]["textDocument"]
+            version = document["version"]
+            text = message["params"].get("contentChanges", [{}])[0].get("text", document.get("text", ""))
+            diagnostics = [{"code": "E0308", "message": "fixture"}] if '"wrong"' in text else []
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "$/progress",
+                                            "params": {"token": "fixture-progress", "value": {
+                                                "kind": "begin", "title": "Fixture analysis"}}})
+            if version == 2:
+                # A late pre-edit publication must not satisfy the valid-code stage.
+                write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+                                                "params": {"uri": document["uri"], "version": 1,
+                                                           "diagnostics": [{"code": "E0308"}]}})
+            elif version == 3:
+                # A different file must not satisfy the reintroduced-error stage.
+                write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+                                                "params": {"uri": document["uri"] + ".other", "version": 3,
+                                                           "diagnostics": [{"code": "E0308"}]}})
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+                                            "params": {"uri": document["uri"], "version": version,
+                                                       "diagnostics": diagnostics}})
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "$/progress",
+                                            "params": {"token": "fixture-progress", "value": {"kind": "end"}}})
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "experimental/serverStatus",
+                                            "params": {"health": "ok", "quiescent": True}})
+        elif method == "rust-analyzer/analyzerStatus":
+            status = ("Workspaces:\nLoaded 1 packages across 1 workspace.\n"
+                      f"Workspace root folders: [{os.getcwd()!r}]\nAnalysis:\nFixture ready\n"
+                      "Version: \nfixture\nConfiguration: \ncargo_buildScripts_enable: true")
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "id": message["id"], "result": status})
+        elif method == "shutdown":
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "id": 99,
+                                            "method": "window/workDoneProgress/create",
+                                            "params": {"token": "shutdown-collision"}})
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "id": message["id"], "result": None})
+        elif method == "exit":
+            return
+
+
+def prior_component_available(manifest):
+    # rustup exposes this component as rust-analyzer; the distribution manifest
+    # names its package rust-analyzer-preview.
+    component = manifest.get("pkg", {}).get("rust-analyzer-preview", {}).get("target", {}).get(PRIOR_TARGET, {})
+    artifact_url = component.get("url", "")
+    return component.get("available") is True and urlparse(artifact_url).hostname == "static.rust-lang.org"
+
+
+def verify_prior_manifest():
+    if sys.platform != "win32":
+        raise RuntimeError("The prior-component availability check is Windows-only")
+    with urllib.request.urlopen(PRIOR_MANIFEST, timeout=15) as response:
+        manifest_bytes = response.read(8 * 1024 * 1024 + 1)
+    if len(manifest_bytes) > 8 * 1024 * 1024:
+        raise RuntimeError("Official Rust distribution manifest exceeded the metadata bound")
+    manifest = tomllib.loads(manifest_bytes.decode("utf-8"))
+    if not prior_component_available(manifest):
+        raise RuntimeError("Official prior rust-analyzer Windows component is unavailable in the pinned release manifest")
+    print("CODESTRIKE_PRIOR_COMPONENT_AVAILABLE=" + PRIOR_TOOLCHAIN + ";target:" + PRIOR_TARGET +
+          ";package:rust-analyzer-preview;manifest-date:" + str(manifest.get("date", "unknown")), flush=True)
+
+
+def analyzer_version(server, toolchain):
+    env = os.environ.copy()
+    if toolchain:
+        env["RUSTUP_TOOLCHAIN"] = toolchain
+    result = subprocess.run([server, "--version"], env=env, capture_output=True,
+                            text=True, timeout=12, check=True)
+    version = result.stdout.strip()
+    expected = "rust-analyzer " + (toolchain or "1.99.0") + " "
+    if not version.startswith(expected):
+        raise RuntimeError(f"Expected {expected.strip()} but found {version[:120]}")
+    return version
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--fake-server", action="store_true")
+    parser.add_argument("--check-prior-availability", action="store_true")
+    parser.add_argument("--compare-versions", action="store_true")
+    args = parser.parse_args()
+    if args.fake_server:
+        fake_server()
+        return 0
+    if args.check_prior_availability:
+        verify_prior_manifest()
+        return 0
+    if args.self_test:
+        manifest = tomllib.loads('date = "2026-09-03"\n[pkg.rust-analyzer-preview.target.x86_64-pc-windows-msvc]\n'
+                                 'available = true\nurl = "https://static.rust-lang.org/dist/fixture.tar.xz"\n')
+        assert prior_component_available(manifest)
+        manifest["pkg"]["rust-analyzer-preview"]["target"][PRIOR_TARGET]["available"] = False
+        assert not prior_component_available(manifest)
+        print("CODESTRIKE_STANDALONE_SELFTEST=official-manifest-preflight-passed", flush=True)
+        class FragmentedStream(io.BytesIO):
+            def read(self, count=-1):
+                return super().read(min(count, 2))
+
+        sample = {"jsonrpc": "2.0", "method": "fixture/fragmented", "params": {"text": "é🦀"}}
+        encoded = io.BytesIO()
+        write_frame(encoded, sample)
+        assert read_frame(FragmentedStream(encoded.getvalue())) == sample
+        print("CODESTRIKE_STANDALONE_SELFTEST=fragmented-frame-passed", flush=True)
+        with tempfile.TemporaryDirectory(prefix="codestrike-standalone-selftest-") as path:
+            fake = [sys.executable, str(Path(__file__).resolve()), "--fake-server"]
+            base = Path(path)
+            first = run_probe(fake, base, total_seconds=20, expect_collisions=True)
+            second = run_probe(fake, base, options=DISABLED_OPTIONS, case="disabled",
+                               total_seconds=20, expect_collisions=True)
+            ok = first and second
+        print("CODESTRIKE_STANDALONE_SELFTEST=colliding-request-ids-" + ("passed" if ok else "failed"), flush=True)
+        print("CODESTRIKE_STANDALONE_SELFTEST=reused-fixture-path-" + ("passed" if ok else "failed"), flush=True)
+        return 0 if ok else 1
+    server = shutil.which("rust-analyzer")
+    if not server:
+        raise RuntimeError("Official rust-analyzer component is unavailable on this hosted runner")
+    base = Path(tempfile.mkdtemp(prefix="codestrike-standalone-ra-", dir=os.environ.get("RUNNER_TEMP")))
+    if args.compare_versions:
+        versions = {"current": analyzer_version(server, None),
+                    "prior": analyzer_version(server, PRIOR_TOOLCHAIN)}
+        print("CODESTRIKE_VERSION_CONTROL_BINARIES=" + json.dumps(versions, separators=(",", ":")), flush=True)
+        results = {}
+        for case, toolchain in (("current_1", None), ("prior_1", PRIOR_TOOLCHAIN),
+                                ("current_2", None), ("prior_2", PRIOR_TOOLCHAIN)):
+            try:
+                results[case] = run_probe([server], base, case=case, toolchain=toolchain)
+            except Exception as exc:
+                results[case] = False
+                print("CODESTRIKE_STANDALONE_CASE_ERROR=" + case + ";" + str(exc)[:300], flush=True)
+        candidate = all(results[name] for name in ("prior_1", "prior_2")) and not any(
+            results[name] for name in ("current_1", "current_2"))
+        print("CODESTRIKE_VERSION_COMPARISON=" + json.dumps({"runs": results,
+              "candidate_compatibility_pin": candidate}, separators=(",", ":")), flush=True)
+        return 0 if all(results.values()) else 1
+    results = {}
+    for case, options in (("default", DEFAULT_OPTIONS), ("disabled", DISABLED_OPTIONS)):
+        try:
+            results[case] = run_probe([server], base, options=options, case=case)
+        except Exception as exc:
+            results[case] = False
+            print("CODESTRIKE_STANDALONE_CASE_ERROR=" + case + ";" + str(exc)[:300], flush=True)
+    print("CODESTRIKE_STANDALONE_COMPARISON=" + json.dumps(results, separators=(",", ":")), flush=True)
+    return 0 if all(results.values()) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
