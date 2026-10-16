@@ -3,6 +3,20 @@ param([Parameter(Mandatory = $true)][string]$VoltPath)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+if (-not ('CodeStrikeLspWindow' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class CodeStrikeLspWindow {
+    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+}
+'@
+}
 
 $exe = (Resolve-Path 'editor/lapce/target/debug/CodeStrike.exe').Path
 $volt = (Resolve-Path -LiteralPath $VoltPath).Path
@@ -21,7 +35,7 @@ version = "0.1.0"
 edition = "2021"
 '@)
 $source = Join-Path $src 'main.rs'
-[System.IO.File]::WriteAllText($source, 'fn main() { let value: i32 = "wrong"; println!("{value}"); }')
+[System.IO.File]::WriteAllText($source, "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }")
 [System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
 [lapce-rust]
 serverPath = "rust-analyzer"
@@ -67,14 +81,39 @@ try {
     $process.Refresh()
     if ($process.HasExited) { throw "CodeStrike exited before the diagnostic capture: $($process.ExitCode)." }
 
-    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+    [CodeStrikeLspWindow]::ShowWindow($process.MainWindowHandle, 9) | Out-Null
+    if (-not [CodeStrikeLspWindow]::SetForegroundWindow($process.MainWindowHandle)) {
+        throw 'CodeStrike could not receive focus for completion.'
+    }
+    $rect = [CodeStrikeLspWindow+Rect]::new()
+    if (-not [CodeStrikeLspWindow]::GetWindowRect($process.MainWindowHandle, [ref]$rect)) {
+        throw 'CodeStrike window bounds were unavailable.'
+    }
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    if ($width -lt 300 -or $height -lt 250) { throw 'CodeStrike window bounds were implausible.' }
+    [CodeStrikeLspWindow]::SetCursorPos($rect.Left + [int]($width * 0.6), $rect.Top + [int]($height * 0.2)) | Out-Null
+    [CodeStrikeLspWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+    [CodeStrikeLspWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+    [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
+    [System.Windows.Forms.SendKeys]::SendWait('{END}')
+    [System.Windows.Forms.SendKeys]::SendWait('{LEFT 5}')
+    [System.Windows.Forms.SendKeys]::SendWait('^{SPACE}')
+    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait('^i')
+    Start-Sleep -Seconds 8
+    'CODESTRIKE_LSP_COMPLETION_KEYS=sent'
+
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    if ($rect.Left -lt $screen.Left -or $rect.Top -lt $screen.Top -or
+        $rect.Right -gt $screen.Right -or $rect.Bottom -gt $screen.Bottom) {
+        throw 'CodeStrike window extends beyond the capture screen.'
+    }
+    $bitmap = [System.Drawing.Bitmap]::new($width, $height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
-        $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-        $width = [Math]::Min(960, $bounds.Width)
-        $height = [int][Math]::Round($bounds.Height * $width / $bounds.Width)
-        $small = [System.Drawing.Bitmap]::new($bitmap, $width, $height)
+        $graphics.CopyFromScreen([System.Drawing.Point]::new($rect.Left, $rect.Top), [System.Drawing.Point]::Empty, $bitmap.Size)
+        $small = [System.Drawing.Bitmap]::new($bitmap)
         try {
             $stream = [System.IO.MemoryStream]::new()
             try {
@@ -113,6 +152,15 @@ try {
         throw 'No rust-analyzer E0308 diagnostic was observed for the real Rust fixture.'
     }
     'CODESTRIKE_LSP_DIAGNOSTICS=rust-analyzer-e0308-passed'
+    if (-not $output.Contains('"method":"textDocument/completion"') -or
+        -not $output.Contains('"label":"Read"')) {
+        $completionLines = @($output -split "`n" |
+            Where-Object { $_ -match 'textDocument/completion|"label":"Read"' } |
+            Select-Object -Last 8)
+        $completionLines | ForEach-Object { Write-Host "CODESTRIKE_LSP_COMPLETION_LOG=$($_.Substring(0, [Math]::Min($_.Length, 450)))" }
+        throw 'CodeStrike did not receive the expected Rust Read completion.'
+    }
+    'CODESTRIKE_LSP_COMPLETION=rust-read-passed'
 } finally {
     $process.Refresh()
     if (-not $process.HasExited) {
