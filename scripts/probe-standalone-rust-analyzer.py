@@ -419,7 +419,9 @@ def fake_server():
 
 
 def prior_component_available(manifest):
-    component = manifest.get("pkg", {}).get("rust-analyzer", {}).get("target", {}).get(PRIOR_TARGET, {})
+    # rustup exposes this component as rust-analyzer; the distribution manifest
+    # names its package rust-analyzer-preview.
+    component = manifest.get("pkg", {}).get("rust-analyzer-preview", {}).get("target", {}).get(PRIOR_TARGET, {})
     artifact_url = component.get("url", "")
     return component.get("available") is True and urlparse(artifact_url).hostname == "static.rust-lang.org"
 
@@ -435,7 +437,7 @@ def verify_prior_manifest():
     if not prior_component_available(manifest):
         raise RuntimeError("Official prior rust-analyzer Windows component is unavailable in the pinned release manifest")
     print("CODESTRIKE_PRIOR_COMPONENT_AVAILABLE=" + PRIOR_TOOLCHAIN + ";target:" + PRIOR_TARGET +
-          ";manifest-date:" + str(manifest.get("date", "unknown")), flush=True)
+          ";package:rust-analyzer-preview;manifest-date:" + str(manifest.get("date", "unknown")), flush=True)
 
 
 def analyzer_version(server, toolchain):
@@ -465,10 +467,10 @@ def main():
         verify_prior_manifest()
         return 0
     if args.self_test:
-        manifest = tomllib.loads('date = "2026-09-03"\n[pkg.rust-analyzer.target.x86_64-pc-windows-msvc]\n'
+        manifest = tomllib.loads('date = "2026-09-03"\n[pkg.rust-analyzer-preview.target.x86_64-pc-windows-msvc]\n'
                                  'available = true\nurl = "https://static.rust-lang.org/dist/fixture.tar.xz"\n')
         assert prior_component_available(manifest)
-        manifest["pkg"]["rust-analyzer"]["target"][PRIOR_TARGET]["available"] = False
+        manifest["pkg"]["rust-analyzer-preview"]["target"][PRIOR_TARGET]["available"] = False
         assert not prior_component_available(manifest)
         print("CODESTRIKE_STANDALONE_SELFTEST=official-manifest-preflight-passed", flush=True)
         class FragmentedStream(io.BytesIO):
