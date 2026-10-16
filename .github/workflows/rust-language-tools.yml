@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/rust-language-tools.yml
       - scripts/probe-rust-language-tools.ps1
+      - editor/patches/codestrike-lapce.patch
 
 permissions:
   contents: read
@@ -59,6 +60,6 @@ jobs:
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
           "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
-      - name: Verify local rust-analyzer diagnostics in the GUI workspace
+      - name: Verify local Rust diagnostics and completion in the GUI workspace
         shell: pwsh
         run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
