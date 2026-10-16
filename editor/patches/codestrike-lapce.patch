@@ -1814,6 +1814,25 @@ index 62067e17..4d150fb8 100644
 +++ b/lapce-proxy/src/lib.rs
 @@ -4,0 +5 @@
 +pub mod codestrike_replace;
+diff --git a/lapce-proxy/src/plugin/psp.rs b/lapce-proxy/src/plugin/psp.rs
+--- a/lapce-proxy/src/plugin/psp.rs
++++ b/lapce-proxy/src/plugin/psp.rs
+@@ -1114,1 +1114,3 @@ pub fn handle_notification(
+                 let volt_display_name = self.volt_display_name.clone();
++                let core_rpc = catalog_rpc.core_rpc.clone();
++                let failure_title = format!("Language server: {volt_display_name}");
+@@ -1129,1 +1131,10 @@ pub fn handle_notification(
+-                        tracing::error!("{:?}", err);
++                        let failure_message =
++                            "Local language server unavailable. Check its path in workspace settings.";
++                        tracing::error!("{failure_message}: {err:?}");
++                        core_rpc.show_message(
++                            failure_title,
++                            ShowMessageParams {
++                                typ: MessageType::ERROR,
++                                message: failure_message.to_string(),
++                            },
++                        );
 diff --git a/lapce-rpc/src/proxy.rs b/lapce-rpc/src/proxy.rs
 index b58b2ad3..7e870672 100644
 --- a/lapce-rpc/src/proxy.rs

@@ -207,6 +207,26 @@ job `117163870747`, passed at commit `e9a1e8e9348eb9fb29dd3883c9603f905e97890f`.
 The GUI probe placed the caret within `use std::io::Read;`, invoked the
 shortcut, observed `textDocument/completion` and a `Read` item from the local
 server, and captured the visible nonempty menu. E0308 diagnostics passed again.
-Selecting/inserting an item, definition, code actions, absent-server behavior,
-and clean-machine installation remain pending. See
+At that point, selecting/inserting an item, definition, code actions,
+absent-server behavior, and clean-machine installation remained pending. See
 [exact setup and provenance](LOCAL_LANGUAGE_TOOLS.md).
+
+The follow-up [Windows run 38959531604](https://github.com/Gerbzz/CodeStrike/actions/runs/38959531604),
+job `117170803799`, passed at commit `a081c5864171345cdc63c739aaad6584459b4cae`.
+It selected `Read` from the visible menu for `use std::io::Re;`, saved, and
+asserted the expanded decoded Rust text on disk; that probe did not compare
+encoding or bytes. In a second GUI session, a
+unique nonexistent local server produced a visible error, the window stayed
+open, and a completion/save attempt left the source hash unchanged. Both
+screenshots are bounded app-window captures in the hosted log. This tests
+one insertion and one unavailable-server configuration; definition, code
+actions, broader failure recovery, and clean-machine installation remain
+pending.
+
+The [final focused run 38962579373](https://github.com/Gerbzz/CodeStrike/actions/runs/38962579373),
+job `117181485050`, passed at code commit `70e8b9efdc19cd6e1b6a89f3c590b56d27640af4`.
+It strengthens the insertion check to a byte-by-byte comparison with the
+expected no-BOM UTF-8 file. It also waits for the missing-server error before
+capturing the app window; the resulting screenshot shows the error card,
+and the source SHA-256 remains unchanged. These checks are narrow regression
+coverage, not full language-tool acceptance.

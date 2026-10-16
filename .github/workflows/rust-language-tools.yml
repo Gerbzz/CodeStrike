@@ -3,11 +3,27 @@ name: CodeStrike local Rust language tools
 on:
   workflow_dispatch:
   push:
-    branches: [draft/rust-language-tooling]
+    branches: [main]
     paths:
       - .github/workflows/rust-language-tools.yml
+      - editor/lapce
+      - editor/patches/**
+      - scripts/prepare-lapce.ps1
       - scripts/probe-rust-language-tools.ps1
-      - editor/patches/codestrike-lapce.patch
+      - scripts/probe-missing-rust-server.ps1
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/rust-language-tools.yml
+      - editor/lapce
+      - editor/patches/**
+      - scripts/prepare-lapce.ps1
+      - scripts/probe-rust-language-tools.ps1
+      - scripts/probe-missing-rust-server.ps1
+
+concurrency:
+  group: codestrike-rust-lsp-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -53,6 +69,7 @@ jobs:
           Copy-Item rust-volt-source/volt.toml, rust-volt-source/LICENSE, rust-volt-source/rust-logo.png $volt
           "Pinned Volt WASM bytes: $((Get-Item (Join-Path $volt 'lapce-rust.wasm')).Length)"
       - name: Prepare and compile the CodeStrike candidate
+        id: build
         shell: pwsh
         run: |
           .\scripts\prepare-lapce.ps1
@@ -60,6 +77,10 @@ jobs:
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
           "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
-      - name: Verify local Rust diagnostics and completion in the GUI workspace
+      - name: Verify Rust diagnostics and saved completion insertion in the GUI
         shell: pwsh
         run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
+      - name: Verify visible unavailable-server behavior and source integrity
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: .\scripts\probe-missing-rust-server.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')

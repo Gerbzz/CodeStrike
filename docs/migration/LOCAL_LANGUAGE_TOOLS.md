@@ -1,8 +1,8 @@
 # Local Rust language tooling assessment - 2026-10-16
 
-Status: **opt-in Windows diagnostics and one completion path verified**.
-Definition, code actions, absent-server behavior, and distribution remain
-unverified.
+Status: **opt-in Windows diagnostics, one saved completion, and a visible
+missing-server error verified**. Definition, code actions, and distribution
+remain unverified.
 
 Pinned Lapce v0.4.6 routes language tooling through local Volt plugins.
 `lapce-app/src/app.rs` accepts repeated `--plugin-path` arguments for
@@ -59,8 +59,40 @@ The E0308 diagnostic also passed in this run. This verifies one completion
 request/response and visible menu, not insertion of a selected item or
 other language-tooling behaviors.
 
-Next, test completion insertion, go-to-definition and code actions through
-the GUI, and verify clear behavior when the server is absent. Keep any
+[Windows run 38959531604](https://github.com/Gerbzz/CodeStrike/actions/runs/38959531604),
+job `117170803799`, passed every step on follow-up code commit
+`a081c5864171345cdc63c739aaad6584459b4cae`. The GUI opened a Rust
+file with the incomplete import `use std::io::Re;`, requested completion,
+displayed `Read` at the top of the menu, selected it, and saved the expected
+decoded source text containing `use std::io::Read;`. That probe compared text,
+not encoding or byte identity. An E0308 diagnostic passed again. This is
+targeted regression coverage for the new `GetCompletion` handler and one
+completion insertion, not every Rust completion shape.
+
+The same run explicitly set the pinned Volt's `serverPath` to a unique
+nonexistent executable. Source inspection confirms this configuration takes
+the plugin's local-server branch, avoiding its automatic download branch.
+The candidate proxy now forwards a failed server launch to its existing UI
+message channel. The app-window screenshot shows a visible error telling the
+user to check the server path. CodeStrike remained open, and a completion
+and save attempt left the Rust source's SHA-256 unchanged. The probe found
+no LSP `initialize` message or downloaded `.gz` archive in the Volt folder.
+This covers one explicitly configured unavailable-server case, not every
+plugin failure, offline state, or recovery path.
+
+[Windows run 38962579373](https://github.com/Gerbzz/CodeStrike/actions/runs/38962579373),
+job `117181485050`, passed every step on follow-up code commit
+`70e8b9efdc19cd6e1b6a89f3c590b56d27640af4`. The insertion probe
+compared each saved byte with the expected no-BOM UTF-8 representation of
+`use std::io::Read;` and its unchanged second line; its marker is
+`CODESTRIKE_LSP_COMPLETION_INSERTION=read-saved-exact-utf8-bytes`. The
+missing-server probe waited for the proxy's `program not found` report,
+then captured the app window three seconds later. The screenshot visibly
+shows the error card, and the fixture file's SHA-256 remained unchanged
+after the completion/save attempt. This confirms exact bytes for this one
+completion and a visible message for this one missing executable.
+
+Next, test go-to-definition and code actions through the GUI. Keep any
 dependency acquisition within free hosted build constraints and the office
 20 GiB free-space floor. A release would also need an explicit plugin
 distribution and notice decision; the current test does not make one.
