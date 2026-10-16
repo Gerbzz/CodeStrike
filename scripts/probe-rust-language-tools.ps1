@@ -157,6 +157,7 @@ try {
         if ($process.HasExited) { throw 'CodeStrike exited before diagnostics after the GUI edit.' }
     }
     if (-not $diagnosticReady) {
+        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'standard-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_LSP_DOCUMENT'
         Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_LSP_AFTER_EDIT_PROTOCOL'
         throw 'No E0308 diagnostic appeared after the persisted GUI edit within 120 seconds.'
     }
@@ -273,6 +274,7 @@ try {
     }
     'CODESTRIKE_LSP_COMPLETION=rust-read-passed'
     if (-not $initialDiagnosticReady) {
+        Write-CodeStrikeRustDocumentTrace -Output $output -FixtureSource $source -TracePath (Join-Path $root 'standard-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_LSP_DOCUMENT'
         Write-CodeStrikeRustFixtureTrace -Output $output -Prefix 'CODESTRIKE_LSP_INITIAL_OPEN_PROTOCOL'
         throw 'Initial-open E0308 was absent even though later edited-document checks passed.'
     }

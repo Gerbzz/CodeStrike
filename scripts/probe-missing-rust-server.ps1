@@ -71,6 +71,7 @@ $originalText = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; pri
 $originalHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
 $editedText = $originalText + '//recovery_marker'
 $editedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($editedText)
+$incompleteBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($editedText.Replace('::Read;', '::Re;'))
 [System.IO.File]::WriteAllText((Join-Path $settings 'settings.toml'), @"
 [lapce-rust]
 serverPath = "$missingServer"
@@ -251,6 +252,7 @@ try {
     }
     if (-not $diagnosticReported) {
         "CODESTRIKE_RA_RECOVERY_EDIT_ON_TIMEOUT=preserved:$(Test-ExactBytes -Path $source -Expected $editedBytes)"
+        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT'
         Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_RA_RECOVERY_PROTOCOL'
         throw 'rust-analyzer did not report the expected E0308 diagnostic after serverPath correction.'
     }
@@ -277,7 +279,19 @@ try {
     [CodeStrikeMissingServerWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
     [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
     [System.Windows.Forms.SendKeys]::SendWait('{END}')
-    [System.Windows.Forms.SendKeys]::SendWait('{LEFT 5}')
+    [System.Windows.Forms.SendKeys]::SendWait('{LEFT}')
+    [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE 2}')
+    [System.Windows.Forms.SendKeys]::SendWait('^s')
+    $incompleteSaved = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        if (Test-ExactBytes -Path $source -Expected $incompleteBytes) {
+            $incompleteSaved = $true
+            break
+        }
+    }
+    if (-not $incompleteSaved) { throw 'The recovered editor did not save the Re prefix before completion.' }
+    'CODESTRIKE_RA_RECOVERY_INTERMEDIATE=re-saved-exact-utf8-bytes'
     [System.Windows.Forms.SendKeys]::SendWait('^i')
     $completionReported = $false
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
@@ -290,6 +304,7 @@ try {
         if ($recovered.HasExited) { throw 'CodeStrike exited before Rust completion recovered.' }
     }
     if (-not $completionReported) {
+        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT'
         Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_RA_RECOVERY_COMPLETION_PROTOCOL'
         throw 'rust-analyzer did not return Read completion after serverPath correction.'
     }
@@ -314,9 +329,21 @@ try {
         $graphics.Dispose()
         $bitmap.Dispose()
     }
-    if (-not (Test-ExactBytes -Path $source -Expected $editedBytes)) {
-        throw 'The deliberate edit changed during the recovered diagnostics/completion session.'
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    [System.Windows.Forms.SendKeys]::SendWait('^s')
+    $completionSaved = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        if (Test-ExactBytes -Path $source -Expected $editedBytes) {
+            $completionSaved = $true
+            break
+        }
     }
+    if (-not $completionSaved) {
+        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT'
+        throw 'Recovered Read completion did not restore exact UTF-8 bytes and the saved marker.'
+    }
+    'CODESTRIKE_RA_RECOVERY_COMPLETION_INSERTION=read-saved-exact-utf8-bytes'
     if (-not $recovered.CloseMainWindow() -or -not $recovered.WaitForExit(15000)) {
         throw 'Recovered CodeStrike did not close cleanly.'
     }
