@@ -1,7 +1,7 @@
 # Local Rust language tooling assessment - 2026-10-16
 
-Status: **one opt-in Windows diagnostic path verified**. Completion,
-definition, code actions, absent-server behavior, and distribution remain
+Status: **opt-in Windows diagnostics and one completion path verified**.
+Definition, code actions, absent-server behavior, and distribution remain
 unverified.
 
 Pinned Lapce v0.4.6 routes language tooling through local Volt plugins.
@@ -43,7 +43,23 @@ The runner had 27.35 GiB free after the debug build. This verifies a local,
 explicitly selected server and one diagnostic case, not the full language
 tooling row in [ACCEPTANCE.md](ACCEPTANCE.md).
 
-Next, test nonempty completion, go-to-definition and code actions through
+[Windows run 38956274211](https://github.com/Gerbzz/CodeStrike/actions/runs/38956274211)
+confirmed a real GUI caret inside `use std::io::Read;` and a passing E0308
+diagnostic, but the advertised `get_completion` shortcut sent no LSP request.
+The pinned Floem editor-core command enum contains `GetCompletion`, while
+Lapce v0.4.6's `run_focus_command` did not handle it. The isolated CodeStrike
+patch now calls the existing `update_completion(true)` path for that command.
+[Windows run 38957477121](https://github.com/Gerbzz/CodeStrike/actions/runs/38957477121),
+job `117163870747`, passed all steps on commit
+`e9a1e8e9348eb9fb29dd3883c9603f905e97890f`. In the actual GUI, the
+probe invoked completion at the Rust import, the proxy logged
+`textDocument/completion`, the server returned a `Read` item, and the
+app-window screenshot shows a nonempty completion menu with `Read`.
+The E0308 diagnostic also passed in this run. This verifies one completion
+request/response and visible menu, not insertion of a selected item or
+other language-tooling behaviors.
+
+Next, test completion insertion, go-to-definition and code actions through
 the GUI, and verify clear behavior when the server is absent. Keep any
 dependency acquisition within free hosted build constraints and the office
 20 GiB free-space floor. A release would also need an explicit plugin
