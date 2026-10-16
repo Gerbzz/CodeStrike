@@ -80,7 +80,7 @@ jobs:
       - name: Verify Rust diagnostics and saved completion insertion in the GUI
         shell: pwsh
         run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
-      - name: Verify visible unavailable-server behavior and source integrity
+      - name: Verify unavailable-server feedback and corrected-path recovery
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: .\scripts\probe-missing-rust-server.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')

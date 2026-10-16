@@ -27,9 +27,23 @@ public static class CodeStrikeMissingServerWindow {
         foreach (string line in Output) if (line.Contains(text)) return true;
         return false;
     }
+    public static void ClearOutput() {
+        string line;
+        while (Output.TryDequeue(out line)) { }
+    }
     public static string CapturedOutput() { return string.Join("\n", Output.ToArray()); }
 }
 '@
+}
+
+function Test-ExactBytes {
+    param([string]$Path, [byte[]]$Expected)
+    $actual = [System.IO.File]::ReadAllBytes($Path)
+    if ($actual.Length -ne $Expected.Length) { return $false }
+    for ($index = 0; $index -lt $Expected.Length; $index++) {
+        if ($actual[$index] -ne $Expected[$index]) { return $false }
+    }
+    return $true
 }
 
 $exe = (Resolve-Path 'editor/lapce/target/debug/CodeStrike.exe').Path
@@ -51,9 +65,11 @@ version = "0.1.0"
 edition = "2021"
 '@)
 $source = Join-Path $src 'main.rs'
-$originalText = "fn main() { println!(`"local fixture`" ); }`n"
+$originalText = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }`n"
 [System.IO.File]::WriteAllText($source, $originalText)
 $originalHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+$editedText = $originalText + '//recovery_marker'
+$editedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($editedText)
 [System.IO.File]::WriteAllText((Join-Path $settings 'settings.toml'), @"
 [lapce-rust]
 serverPath = "$missingServer"
@@ -154,6 +170,20 @@ try {
     if ($afterHash -ne $originalHash) { throw 'The unavailable language server caused an unexpected source-file change.' }
     'CODESTRIKE_MISSING_RA_SOURCE=unchanged-after-completion-and-save'
 
+    [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+    [System.Windows.Forms.SendKeys]::SendWait('//recovery_marker')
+    [System.Windows.Forms.SendKeys]::SendWait('^s')
+    $savedEdit = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        if (Test-ExactBytes -Path $source -Expected $editedBytes) {
+            $savedEdit = $true
+            break
+        }
+    }
+    if (-not $savedEdit) { throw 'The editor did not save the deliberate recovery-marker edit while the server was unavailable.' }
+    'CODESTRIKE_MISSING_RA_EDIT=saved-exact-utf8-bytes'
+
     if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
         throw 'CodeStrike did not close cleanly with an unavailable language server.'
     }
@@ -170,7 +200,7 @@ try {
     if (Get-ChildItem -LiteralPath $volt -Filter '*.gz' -ErrorAction SilentlyContinue) {
         throw 'The explicit server path unexpectedly acquired an archive.'
     }
-    'CODESTRIKE_MISSING_RA=reported-error-source-unchanged-no-download'
+    'CODESTRIKE_MISSING_RA=reported-error-no-unrequested-edit-no-download'
 } finally {
     $process.Refresh()
     if (-not $process.HasExited) {
@@ -180,4 +210,127 @@ try {
         }
     }
     $process.Dispose()
+}
+
+# A corrected workspace setting must work after a clean restart, with the
+# deliberate edit made while the server was unavailable still on disk.
+[System.IO.File]::WriteAllText((Join-Path $settings 'settings.toml'), @'
+[lapce-rust]
+serverPath = "rust-analyzer"
+checkOnSave = false
+'@)
+[CodeStrikeMissingServerWindow]::ClearOutput()
+$recovered = [System.Diagnostics.Process]::Start($start)
+if ($null -eq $recovered) { throw 'Windows did not restart CodeStrike after correcting serverPath.' }
+[CodeStrikeMissingServerWindow]::BeginCapture($recovered)
+
+try {
+    $foundWindow = $false
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {
+        Start-Sleep -Seconds 1
+        $recovered.Refresh()
+        if ($recovered.HasExited) { throw "CodeStrike exited during language-server recovery: $($recovered.ExitCode)." }
+        if ($recovered.MainWindowHandle -ne [IntPtr]::Zero) {
+            $foundWindow = $true
+            break
+        }
+    }
+    if (-not $foundWindow) { throw 'Recovered CodeStrike did not expose a window within 120 seconds.' }
+    "CODESTRIKE_RA_RECOVERY_WINDOW=opened;pid:$($recovered.Id)"
+
+    $diagnosticReported = $false
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {
+        if ([CodeStrikeMissingServerWindow]::HasOutput('E0308')) {
+            $diagnosticReported = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+        $recovered.Refresh()
+        if ($recovered.HasExited) { throw 'CodeStrike exited before rust-analyzer diagnostics recovered.' }
+    }
+    if (-not $diagnosticReported) { throw 'rust-analyzer did not report the expected E0308 diagnostic after serverPath correction.' }
+    'CODESTRIKE_RA_RECOVERY_DIAGNOSTICS=e0308-reported'
+
+    [CodeStrikeMissingServerWindow]::ShowWindow($recovered.MainWindowHandle, 9) | Out-Null
+    if (-not [CodeStrikeMissingServerWindow]::SetForegroundWindow($recovered.MainWindowHandle)) {
+        throw 'Recovered CodeStrike could not receive focus for completion.'
+    }
+    $rect = [CodeStrikeMissingServerWindow+Rect]::new()
+    if (-not [CodeStrikeMissingServerWindow]::GetWindowRect($recovered.MainWindowHandle, [ref]$rect)) {
+        throw 'Recovered CodeStrike window bounds were unavailable.'
+    }
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    if ($width -lt 300 -or $height -lt 250 -or
+        $rect.Left -lt $screen.Left -or $rect.Top -lt $screen.Top -or
+        $rect.Right -gt $screen.Right -or $rect.Bottom -gt $screen.Bottom) {
+        throw 'Recovered CodeStrike window bounds were implausible.'
+    }
+    [CodeStrikeMissingServerWindow]::SetCursorPos($rect.Left + [int]($width * 0.4), $rect.Top + [int]($height * 0.2)) | Out-Null
+    [CodeStrikeMissingServerWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+    [CodeStrikeMissingServerWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+    [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
+    [System.Windows.Forms.SendKeys]::SendWait('{END}')
+    [System.Windows.Forms.SendKeys]::SendWait('{LEFT 5}')
+    [System.Windows.Forms.SendKeys]::SendWait('^i')
+    $completionReported = $false
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        if ([CodeStrikeMissingServerWindow]::HasOutput('"label":"Read"')) {
+            $completionReported = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+        $recovered.Refresh()
+        if ($recovered.HasExited) { throw 'CodeStrike exited before Rust completion recovered.' }
+    }
+    if (-not $completionReported) { throw 'rust-analyzer did not return Read completion after serverPath correction.' }
+    Start-Sleep -Seconds 2
+
+    $bitmap = [System.Drawing.Bitmap]::new($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CopyFromScreen([System.Drawing.Point]::new($rect.Left, $rect.Top), [System.Drawing.Point]::Empty, $bitmap.Size)
+        $stream = [System.IO.MemoryStream]::new()
+        try {
+            $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() |
+                Where-Object MimeType -eq 'image/jpeg' | Select-Object -First 1
+            $parameters = [System.Drawing.Imaging.EncoderParameters]::new(1)
+            $parameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
+                [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
+            $bitmap.Save($stream, $codec, $parameters)
+            if ($stream.Length -gt 350KB) { throw 'Recovery screenshot exceeded its log bound.' }
+            "CODESTRIKE_RA_RECOVERY_SCREENSHOT_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
+        } finally { $stream.Dispose() }
+    } finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+    if (-not (Test-ExactBytes -Path $source -Expected $editedBytes)) {
+        throw 'The deliberate edit changed during the recovered diagnostics/completion session.'
+    }
+    if (-not $recovered.CloseMainWindow() -or -not $recovered.WaitForExit(15000)) {
+        throw 'Recovered CodeStrike did not close cleanly.'
+    }
+    $recovered.WaitForExit()
+    $output = [CodeStrikeMissingServerWindow]::CapturedOutput()
+    if (-not $output.Contains('"method":"initialize"') -or
+        -not $output.Contains('"method":"textDocument/completion"') -or
+        -not $output.Contains('"label":"Read"') -or
+        -not ($output -split "`n" | Where-Object { $_.Contains('textDocument/publishDiagnostics') -and $_.Contains('E0308') })) {
+        throw 'The corrected local server did not complete initialize, E0308 diagnostics, and Read completion.'
+    }
+    if (-not (Test-ExactBytes -Path $source -Expected $editedBytes)) {
+        throw 'The deliberate edit was lost after closing the recovered editor.'
+    }
+    'CODESTRIKE_RA_RECOVERY=diagnostics-completion-preserved-edit-exact-bytes'
+} finally {
+    $recovered.Refresh()
+    if (-not $recovered.HasExited) {
+        if (-not $recovered.CloseMainWindow() -or -not $recovered.WaitForExit(15000)) {
+            $recovered.Kill($true)
+            $recovered.WaitForExit(10000) | Out-Null
+        }
+    }
+    $recovered.Dispose()
 }
