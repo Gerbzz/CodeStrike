@@ -45,7 +45,7 @@ jobs:
       - name: Build the pinned Apache-2.0 Rust Volt
         shell: pwsh
         run: |
-          cargo build --manifest-path rust-volt-source/Cargo.toml --locked --release --target wasm32-wasip1
+          cargo build --manifest-path rust-volt-source/Cargo.toml --locked --release --target wasm32-wasip1 --target-dir rust-volt-source/target
           $volt = Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt'
           New-Item -ItemType Directory -Path $volt -Force | Out-Null
           Copy-Item rust-volt-source/target/wasm32-wasip1/release/lapce_rust.wasm (Join-Path $volt 'lapce-rust.wasm')
