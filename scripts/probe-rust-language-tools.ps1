@@ -55,7 +55,7 @@ edition = "2021"
 $source = Join-Path $src 'main.rs'
 $expectedSource = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }"
 $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource)
-[System.IO.File]::WriteAllText($source, $expectedSource.Replace('::Read;', '::Re;'))
+[System.IO.File]::WriteAllText($source, $expectedSource)
 [System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
 [lapce-rust]
 serverPath = "rust-analyzer"
@@ -130,7 +130,10 @@ try {
     [CodeStrikeLspWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
     [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
     [System.Windows.Forms.SendKeys]::SendWait('{END}')
-    [System.Windows.Forms.SendKeys]::SendWait('{LEFT 1}')
+    # Keep the fixture valid until diagnostics arrive, then remove "ad" in the
+    # editor so completion must restore Read rather than merely report it.
+    [System.Windows.Forms.SendKeys]::SendWait('{LEFT}')
+    [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE 2}')
     [System.Windows.Forms.SendKeys]::SendWait('^i')
     $completionReady = $false
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
