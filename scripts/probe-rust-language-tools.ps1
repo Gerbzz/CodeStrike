@@ -35,7 +35,8 @@ version = "0.1.0"
 edition = "2021"
 '@)
 $source = Join-Path $src 'main.rs'
-[System.IO.File]::WriteAllText($source, "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }")
+$expectedSource = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }"
+[System.IO.File]::WriteAllText($source, $expectedSource.Replace('::Read;', '::Re;'))
 [System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
 [lapce-rust]
 serverPath = "rust-analyzer"
@@ -97,7 +98,7 @@ try {
     [CodeStrikeLspWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
     [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
     [System.Windows.Forms.SendKeys]::SendWait('{END}')
-    [System.Windows.Forms.SendKeys]::SendWait('{LEFT 5}')
+    [System.Windows.Forms.SendKeys]::SendWait('{LEFT 1}')
     [System.Windows.Forms.SendKeys]::SendWait('^i')
     Start-Sleep -Seconds 8
     'CODESTRIKE_LSP_COMPLETION_KEYS=sent'
@@ -129,6 +130,22 @@ try {
         $graphics.Dispose()
         $bitmap.Dispose()
     }
+
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait('^s')
+    $savedExpectedSource = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        if ([System.IO.File]::ReadAllText($source) -ceq $expectedSource) {
+            $savedExpectedSource = $true
+            break
+        }
+    }
+    if (-not $savedExpectedSource) {
+        throw "Completion selection did not save the expected exact Rust source: $([System.IO.File]::ReadAllText($source))"
+    }
+    'CODESTRIKE_LSP_COMPLETION_INSERTION=read-saved-exact-bytes'
 
     if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
         throw 'CodeStrike did not close cleanly after the diagnostic capture.'
