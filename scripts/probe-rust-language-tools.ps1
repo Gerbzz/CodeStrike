@@ -39,6 +39,7 @@ $start.UseShellExecute = $false
 $start.Environment['APPDATA'] = $appData
 $start.Environment['LOCALAPPDATA'] = $localData
 $start.Environment['CARGO_NET_OFFLINE'] = 'true'
+$start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=debug,lapce_app=info'
 $process = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $process) { throw 'Windows did not start CodeStrike.' }
 
@@ -59,12 +60,19 @@ try {
     $diagnostics = $false
     $sawInitialize = $false
     $lastLog = ''
-    for ($attempt = 0; $attempt -lt 180; $attempt++) {
+    $profileLocal = [Environment]::GetFolderPath('LocalApplicationData')
+    $profileRoaming = [Environment]::GetFolderPath('ApplicationData')
+    $logRoots = @($localData, (Join-Path $profileLocal 'ArtCraft'), (Join-Path $profileRoaming 'ArtCraft')) |
+        Select-Object -Unique
+    $seenLogPaths = [System.Collections.Generic.HashSet[string]]::new()
+    for ($attempt = 0; $attempt -lt 150; $attempt++) {
         Start-Sleep -Seconds 1
         $process.Refresh()
         if ($process.HasExited) { throw "CodeStrike exited while waiting for diagnostics: $($process.ExitCode)." }
-        $logs = @(Get-ChildItem -LiteralPath $localData -Recurse -File -Filter '*.log' -ErrorAction SilentlyContinue)
+        $logs = @($logRoots | Where-Object { Test-Path -LiteralPath $_ } |
+            ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -File -Filter '*.log' -ErrorAction SilentlyContinue })
         foreach ($log in $logs) {
+            $seenLogPaths.Add($log.FullName) | Out-Null
             try { $lastLog = [System.IO.File]::ReadAllText($log.FullName) } catch { continue }
             if ($lastLog.Contains('"method":"initialize"')) { $sawInitialize = $true }
             if ($lastLog.Contains('textDocument/publishDiagnostics') -and
@@ -75,10 +83,20 @@ try {
         }
         if ($diagnostics) { break }
     }
+    if (-not $sawInitialize -or -not $diagnostics) {
+        "CODESTRIKE_LSP_LOG_PATHS=$($seenLogPaths -join ';')"
+        $debugLines = @()
+        foreach ($logPath in $seenLogPaths) {
+            try {
+                $debugLines += @([System.IO.File]::ReadAllLines($logPath) |
+                    Where-Object { $_ -match 'lapce-rust|rust-analyzer|publishDiagnostics|plugin|ERROR' })
+            } catch { continue }
+        }
+        $lines = @($debugLines | Select-Object -Last 28)
+        $lines | ForEach-Object { Write-Host "CODESTRIKE_LSP_DIAGNOSTIC_LOG=$($_.Substring(0, [Math]::Min($_.Length, 450)))" }
+    }
     if (-not $sawInitialize) { throw 'No rust-analyzer initialize request was found in CodeStrike logs.' }
     if (-not $diagnostics) {
-        $lines = @($lastLog -split "`n" | Where-Object { $_ -match 'lapce-rust|rust-analyzer|publishDiagnostics|error' } | Select-Object -Last 18)
-        $lines | ForEach-Object { Write-Host "CODESTRIKE_LSP_DIAGNOSTIC_LOG=$($_.Substring(0, [Math]::Min($_.Length, 450)))" }
         throw 'No rust-analyzer E0308 diagnostic was observed for the real Rust fixture.'
     }
     'CODESTRIKE_LSP_DIAGNOSTICS=rust-analyzer-e0308-passed'
