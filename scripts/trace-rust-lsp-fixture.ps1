@@ -10,6 +10,11 @@ function Write-CodeStrikeRustFixtureTrace {
         $json = $Matches[2] -replace '\x1b\[[0-9;]*m', ''
         try { $message = $json | ConvertFrom-Json -ErrorAction Stop } catch { continue }
         $method = [string]$message.method
+        if (-not $method -and $null -ne $message.id -and $json.Contains('"label"')) {
+            $entries.Enqueue("$direction response id=$($message.id);readLabel=$($json.Contains('"label":"Read"'))")
+            if ($entries.Count -gt 60) { $entries.Dequeue() | Out-Null }
+            continue
+        }
         $detail = switch ($method) {
             'initialize' {
                 $folders = @($message.params.workspaceFolders | ForEach-Object uri) -join ','
@@ -24,6 +29,9 @@ function Write-CodeStrikeRustFixtureTrace {
                 "uri=$($doc.uri);version=$($doc.version);changes=$(@($message.params.contentChanges).Count)"
             }
             'textDocument/didSave' { "uri=$($message.params.textDocument.uri)" }
+            'textDocument/completion' {
+                "uri=$($message.params.textDocument.uri);line=$($message.params.position.line);character=$($message.params.position.character);id=$($message.id)"
+            }
             'textDocument/publishDiagnostics' {
                 $codes = @($message.params.diagnostics | ForEach-Object code) -join ','
                 "uri=$($message.params.uri);version=$($message.params.version);count=$(@($message.params.diagnostics).Count);codes=$codes"

@@ -289,7 +289,10 @@ try {
         $recovered.Refresh()
         if ($recovered.HasExited) { throw 'CodeStrike exited before Rust completion recovered.' }
     }
-    if (-not $completionReported) { throw 'rust-analyzer did not return Read completion after serverPath correction.' }
+    if (-not $completionReported) {
+        Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_RA_RECOVERY_COMPLETION_PROTOCOL'
+        throw 'rust-analyzer did not return Read completion after serverPath correction.'
+    }
     Start-Sleep -Seconds 2
 
     $bitmap = [System.Drawing.Bitmap]::new($width, $height)
