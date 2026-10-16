@@ -5,6 +5,7 @@ No CodeStrike, Lapce, Volt, or user workspace is loaded.
 """
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -200,7 +201,7 @@ class Client:
 def make_fixture(base):
     root = base / "fixture"
     source = root / "src" / "main.rs"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     (root / "Cargo.toml").write_bytes(b'[package]\nname = "codestrike_lsp_fixture"\nversion = "0.1.0"\nedition = "2021"\n')
     source.write_bytes(INVALID.encode("utf-8"))
     return root, source
@@ -233,12 +234,12 @@ def summarize_analyzer_status(value, root):
         return re.sub(r"[A-Za-z]:[/\\][^\s,\]]+", "<path>", text)
 
     relevant = [redact(line.strip())[:150] for line in configuration.splitlines()
-                if re.search(r"build.?scripts|proc.?macro|check.?on.?save", line, re.I)]
+                if re.search(r"cargo|build.?scripts|proc.?macro|check.?on.?save", line, re.I)]
     return {"loaded": loaded.group(0) if loaded else None,
             "workspace_root_mentions_fixture": has_root,
             "analysis_excerpt": redact(analysis.strip())[:420],
             "version": version.strip()[:120],
-            "configuration_relevant": relevant[:12],
+            "configuration_relevant": relevant[:20],
             "configuration_chars": len(configuration)}
 
 
@@ -304,6 +305,8 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
             "textDocument": {"uri": source_uri, "version": 2},
             "contentChanges": [{"text": VALID}],
         })
+        print("CODESTRIKE_STANDALONE_CHANGE=" + case + ";version:2;diskSha256:" +
+              hashlib.sha256(source.read_bytes()).hexdigest(), flush=True)
         if stages["initial_error"]:
             stages["valid_removes_error"] = False
             try:
@@ -325,6 +328,8 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
             "textDocument": {"uri": source_uri, "version": 3},
             "contentChanges": [{"text": INVALID}],
         })
+        print("CODESTRIKE_STANDALONE_CHANGE=" + case + ";version:3;diskSha256:" +
+              hashlib.sha256(source.read_bytes()).hexdigest(), flush=True)
         try:
             client.wait_for(lambda msg: diag_at(msg, source_uri, 3, True), source_uri, 45, "reintroduced v3 E0308")
             stages["reintroduced_error"] = True
@@ -423,9 +428,14 @@ def main():
         assert read_frame(FragmentedStream(encoded.getvalue())) == sample
         print("CODESTRIKE_STANDALONE_SELFTEST=fragmented-frame-passed", flush=True)
         with tempfile.TemporaryDirectory(prefix="codestrike-standalone-selftest-") as path:
-            ok = run_probe([sys.executable, str(Path(__file__).resolve()), "--fake-server"],
-                           Path(path), total_seconds=20, expect_collisions=True)
+            fake = [sys.executable, str(Path(__file__).resolve()), "--fake-server"]
+            base = Path(path)
+            first = run_probe(fake, base, total_seconds=20, expect_collisions=True)
+            second = run_probe(fake, base, options=DISABLED_OPTIONS, case="disabled",
+                               total_seconds=20, expect_collisions=True)
+            ok = first and second
         print("CODESTRIKE_STANDALONE_SELFTEST=colliding-request-ids-" + ("passed" if ok else "failed"), flush=True)
+        print("CODESTRIKE_STANDALONE_SELFTEST=reused-fixture-path-" + ("passed" if ok else "failed"), flush=True)
         return 0 if ok else 1
     server = shutil.which("rust-analyzer")
     if not server:
