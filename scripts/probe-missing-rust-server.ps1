@@ -1,6 +1,7 @@
 param([Parameter(Mandatory = $true)][string]$VoltPath)
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'trace-rust-lsp-fixture.ps1')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 if (-not ('CodeStrikeMissingServerWindow' -as [type])) {
@@ -248,7 +249,11 @@ try {
         $recovered.Refresh()
         if ($recovered.HasExited) { throw 'CodeStrike exited before rust-analyzer diagnostics recovered.' }
     }
-    if (-not $diagnosticReported) { throw 'rust-analyzer did not report the expected E0308 diagnostic after serverPath correction.' }
+    if (-not $diagnosticReported) {
+        "CODESTRIKE_RA_RECOVERY_EDIT_ON_TIMEOUT=preserved:$(Test-ExactBytes -Path $source -Expected $editedBytes)"
+        Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_RA_RECOVERY_PROTOCOL'
+        throw 'rust-analyzer did not report the expected E0308 diagnostic after serverPath correction.'
+    }
     'CODESTRIKE_RA_RECOVERY_DIAGNOSTICS=e0308-reported'
 
     [CodeStrikeMissingServerWindow]::ShowWindow($recovered.MainWindowHandle, 9) | Out-Null

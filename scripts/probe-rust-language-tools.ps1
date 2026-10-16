@@ -1,6 +1,7 @@
 param([Parameter(Mandatory = $true)][string]$VoltPath)
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'trace-rust-lsp-fixture.ps1')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 if (-not ('CodeStrikeLspWindow' -as [type])) {
@@ -55,6 +56,7 @@ edition = "2021"
 $source = Join-Path $src 'main.rs'
 $expectedSource = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }"
 $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource)
+$incompleteBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource.Replace('::Read;', '::Re;'))
 [System.IO.File]::WriteAllText($source, $expectedSource)
 [System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
 [lapce-rust]
@@ -106,6 +108,8 @@ try {
         if ($process.HasExited) { throw "CodeStrike exited before rust-analyzer diagnostics: $($process.ExitCode)." }
     }
     if (-not $diagnosticReady) {
+        "CODESTRIKE_LSP_SOURCE_ON_TIMEOUT=sha256:$((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash);bytes:$([System.IO.File]::ReadAllBytes($source).Length)"
+        Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_LSP_PROTOCOL'
         $debugLines = @([CodeStrikeLspWindow]::CapturedOutput() -split "`n" |
             Where-Object { $_ -match 'rust-analyzer|lapce-rust|publishDiagnostics|ERROR' } |
             Select-Object -Last 20)
@@ -134,6 +138,18 @@ try {
     # editor so completion must restore Read rather than merely report it.
     [System.Windows.Forms.SendKeys]::SendWait('{LEFT}')
     [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE 2}')
+    [System.Windows.Forms.SendKeys]::SendWait('^s')
+    $incompleteSaved = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        $actual = [System.IO.File]::ReadAllBytes($source)
+        if ([Convert]::ToHexString($actual) -eq [Convert]::ToHexString($incompleteBytes)) {
+            $incompleteSaved = $true
+            break
+        }
+    }
+    if (-not $incompleteSaved) { throw 'The GUI did not persist the incomplete Re fixture before completion.' }
+    'CODESTRIKE_LSP_INTERMEDIATE_EDIT=re-saved-exact-utf8-bytes'
     [System.Windows.Forms.SendKeys]::SendWait('^i')
     $completionReady = $false
     for ($attempt = 0; $attempt -lt 30; $attempt++) {

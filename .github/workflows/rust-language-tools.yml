@@ -11,6 +11,7 @@ on:
       - scripts/prepare-lapce.ps1
       - scripts/probe-rust-language-tools.ps1
       - scripts/probe-missing-rust-server.ps1
+      - scripts/trace-rust-lsp-fixture.ps1
   pull_request:
     branches: [main]
     paths:
@@ -20,6 +21,7 @@ on:
       - scripts/prepare-lapce.ps1
       - scripts/probe-rust-language-tools.ps1
       - scripts/probe-missing-rust-server.ps1
+      - scripts/trace-rust-lsp-fixture.ps1
 
 concurrency:
   group: codestrike-rust-lsp-${{ github.event.pull_request.number || github.ref }}
