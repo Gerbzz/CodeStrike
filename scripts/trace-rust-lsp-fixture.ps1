@@ -66,7 +66,7 @@ function Get-CodeStrikeFixtureOffset {
 }
 
 function Write-CodeStrikeRustDocumentTrace {
-    param([string]$Output, [string]$FixtureSource, [string]$TracePath, [string]$Prefix)
+    param([string]$Output, [string]$FixtureSource, [string]$TracePath, [string]$Prefix, [switch]$IncludeCompletions)
 
     # This helper is used only with the generated Rust fixture. Refuse to
     # record text for any other URI, including user files opened by accident.
@@ -75,12 +75,32 @@ function Write-CodeStrikeRustDocumentTrace {
     $document = $null
     $version = $null
     $skipped = 0
+    $completionIds = [System.Collections.Generic.HashSet[int]]::new()
     foreach ($line in ($Output -split "`n")) {
         if ($line -notmatch '(write|read) (?:to|from) lsp: (\{.*\})') { continue }
         $json = $Matches[2] -replace '\x1b\[[0-9;]*m', ''
         try { $message = $json | ConvertFrom-Json -ErrorAction Stop } catch { continue }
         $method = [string]$message.method
-        if ($method -notin @('textDocument/didOpen', 'textDocument/didChange', 'textDocument/publishDiagnostics')) { continue }
+        if ($IncludeCompletions -and -not $method -and $null -ne $message.id -and
+            $completionIds.Contains([int]$message.id)) {
+            $resultKind = if ($null -ne $message.error) { 'error' } elseif ($null -eq $message.result) { 'null' } else { 'result' }
+            $items = if ($null -ne $message.result.items) { @($message.result.items) } elseif ($message.result -is [array]) { @($message.result) } else { @() }
+            $record = [ordered]@{ method = 'textDocument/completion-response'; id = $message.id; kind = $resultKind; items = $items.Count; readLabel = $json.Contains('"label":"Read"'); error = $message.error }
+            if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
+            continue
+        }
+        if ($method -eq 'initialize') {
+            $record = [ordered]@{ method = $method; rootUri = $message.params.rootUri; options = $message.params.initializationOptions }
+            if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
+            continue
+        }
+        if ($method -eq 'rust-analyzer/serverStatus') {
+            $record = [ordered]@{ method = $method; health = $message.params.health; quiescent = $message.params.quiescent }
+            if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
+            continue
+        }
+        if ($method -notin @('textDocument/didOpen', 'textDocument/didChange', 'textDocument/publishDiagnostics', 'textDocument/completion')) { continue }
+        if ($method -eq 'textDocument/completion' -and -not $IncludeCompletions) { continue }
         $uri = if ($method -eq 'textDocument/publishDiagnostics') { [string]$message.params.uri } else { [string]$message.params.textDocument.uri }
         try { $messagePath = [System.Uri]::new($uri).LocalPath } catch { continue }
         if (-not [string]::Equals($sourcePath, [System.IO.Path]::GetFullPath($messagePath), [System.StringComparison]::OrdinalIgnoreCase)) { continue }
@@ -106,6 +126,9 @@ function Write-CodeStrikeRustDocumentTrace {
                 if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
             }
             continue
+        } elseif ($method -eq 'textDocument/completion') {
+            $completionIds.Add([int]$message.id) | Out-Null
+            $record = [ordered]@{ method = $method; uri = $uri; id = $message.id; position = $message.params.position }
         } else {
             $codes = @($message.params.diagnostics | ForEach-Object code)
             $record = [ordered]@{ method = $method; uri = $uri; version = $message.params.version; codes = $codes }

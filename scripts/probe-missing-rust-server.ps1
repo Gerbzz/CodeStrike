@@ -252,7 +252,7 @@ try {
     }
     if (-not $diagnosticReported) {
         "CODESTRIKE_RA_RECOVERY_EDIT_ON_TIMEOUT=preserved:$(Test-ExactBytes -Path $source -Expected $editedBytes)"
-        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT'
+        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT' -IncludeCompletions
         Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_RA_RECOVERY_PROTOCOL'
         throw 'rust-analyzer did not report the expected E0308 diagnostic after serverPath correction.'
     }
@@ -304,7 +304,7 @@ try {
         if ($recovered.HasExited) { throw 'CodeStrike exited before Rust completion recovered.' }
     }
     if (-not $completionReported) {
-        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT'
+        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT' -IncludeCompletions
         Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_RA_RECOVERY_COMPLETION_PROTOCOL'
         throw 'rust-analyzer did not return Read completion after serverPath correction.'
     }
@@ -340,7 +340,7 @@ try {
         }
     }
     if (-not $completionSaved) {
-        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT'
+        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeMissingServerWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'recovery-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_RA_RECOVERY_DOCUMENT' -IncludeCompletions
         throw 'Recovered Read completion did not restore exact UTF-8 bytes and the saved marker.'
     }
     'CODESTRIKE_RA_RECOVERY_COMPLETION_INSERTION=read-saved-exact-utf8-bytes'
