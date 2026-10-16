@@ -6,6 +6,8 @@ Add-Type -AssemblyName System.Drawing
 if (-not ('CodeStrikeMissingServerWindow' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 public static class CodeStrikeMissingServerWindow {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
@@ -14,6 +16,18 @@ public static class CodeStrikeMissingServerWindow {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+    private static readonly ConcurrentQueue<string> Output = new ConcurrentQueue<string>();
+    public static void BeginCapture(Process process) {
+        process.OutputDataReceived += (sender, e) => { if (e.Data != null) Output.Enqueue(e.Data); };
+        process.ErrorDataReceived += (sender, e) => { if (e.Data != null) Output.Enqueue(e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+    }
+    public static bool HasOutput(string text) {
+        foreach (string line in Output) if (line.Contains(text)) return true;
+        return false;
+    }
+    public static string CapturedOutput() { return string.Join("\n", Output.ToArray()); }
 }
 '@
 }
@@ -62,8 +76,7 @@ $start.Environment['CARGO_NET_OFFLINE'] = 'true'
 $start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=debug,lapce_app=info'
 $process = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $process) { throw 'Windows did not start CodeStrike.' }
-$stdoutTask = $process.StandardOutput.ReadToEndAsync()
-$stderrTask = $process.StandardError.ReadToEndAsync()
+[CodeStrikeMissingServerWindow]::BeginCapture($process)
 
 try {
     $foundWindow = $false
@@ -78,7 +91,19 @@ try {
     }
     if (-not $foundWindow) { throw 'CodeStrike did not expose a window within 120 seconds.' }
     "CODESTRIKE_MISSING_RA_WINDOW=opened;pid:$($process.Id)"
-    Start-Sleep -Seconds 20
+    $failureMessage = 'Local language server unavailable. Check its path in workspace settings.'
+    $reported = $false
+    for ($attempt = 0; $attempt -lt 90; $attempt++) {
+        if ([CodeStrikeMissingServerWindow]::HasOutput($failureMessage)) {
+            $reported = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+        $process.Refresh()
+        if ($process.HasExited) { throw 'CodeStrike exited before reporting the language-server failure.' }
+    }
+    if (-not $reported) { throw 'The local language-server failure was not reported within 90 seconds.' }
+    Start-Sleep -Seconds 3
     $process.Refresh()
     if ($process.HasExited) { throw 'CodeStrike exited after the language server failed to start.' }
 
@@ -132,20 +157,20 @@ try {
     if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
         throw 'CodeStrike did not close cleanly with an unavailable language server.'
     }
-    if (-not $stdoutTask.Wait(10000) -or -not $stderrTask.Wait(10000)) {
-        throw 'CodeStrike console capture did not complete after exit.'
-    }
-    $output = $stdoutTask.Result + "`n" + $stderrTask.Result
-    if (-not $output.Contains('Local language server unavailable. Check its path in workspace settings.')) {
+    $process.WaitForExit()
+    $output = [CodeStrikeMissingServerWindow]::CapturedOutput()
+    if (-not $output.Contains($failureMessage)) {
         throw 'The local-server failure was not reported by the proxy.'
     }
+    $failureLine = @($output -split "`n" | Where-Object { $_.Contains($failureMessage) } | Select-Object -Last 1)
+    $failureLine | ForEach-Object { Write-Host "CODESTRIKE_MISSING_RA_ERROR_LOG=$($_.Substring(0, [Math]::Min($_.Length, 450)))" }
     if ($output.Contains('"method":"initialize"')) {
         throw 'The missing language server unexpectedly received an initialize request.'
     }
     if (Get-ChildItem -LiteralPath $volt -Filter '*.gz' -ErrorAction SilentlyContinue) {
         throw 'The explicit server path unexpectedly acquired an archive.'
     }
-    'CODESTRIKE_MISSING_RA=visible-error-source-unchanged-no-download'
+    'CODESTRIKE_MISSING_RA=reported-error-source-unchanged-no-download'
 } finally {
     $process.Refresh()
     if (-not $process.HasExited) {
