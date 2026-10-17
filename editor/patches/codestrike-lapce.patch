@@ -555,7 +555,7 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd..53422e8 100644
+index 0cc1edd..70e1a82 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
 @@ -5,0 +6 @@ use floem::{
@@ -583,7 +583,7 @@ index 0cc1edd..53422e8 100644
 +        workspace_replace_controls(global_search.clone(), config),
 +        search_result(workspace, global_search, internal_command, config)
 +            .style(move |s| s.apply_if(replace_expanded.get(), |s| s.hide())),
-@@ -109,0 +121,249 @@ pub fn global_search_panel(
+@@ -109,0 +121,247 @@ pub fn global_search_panel(
 +fn workspace_replace_controls(
 +    global_search: GlobalSearchData,
 +    config: ReadSignal<Arc<LapceConfig>>,
@@ -620,7 +620,6 @@ index 0cc1edd..53422e8 100644
 +            match event.key.physical_key {
 +                PhysicalKey::Code(KeyCode::Tab) => {
 +                    replace_focus.set(false);
-+                    focus.set(Focus::Workbench);
 +                    if applied.get_untracked().is_some() {
 +                        undo_button_id.request_focus();
 +                    } else {
@@ -633,7 +632,6 @@ index 0cc1edd..53422e8 100644
 +                        enter_action.preview_workspace_replace();
 +                    }
 +                    replace_focus.set(false);
-+                    focus.set(Focus::Workbench);
 +                    if applied.get_untracked().is_some() {
 +                        undo_button_id.request_focus();
 +                    } else {
@@ -838,7 +836,7 @@ index 0cc1edd..53422e8 100644
 +                                                        EditorPosition::LineCol(
 @@ -282,0 +543 @@ fn search_result(
 +                                                            start,
-@@ -308 +569 @@ fn search_result(
+@@ -308 +567 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
 +    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
