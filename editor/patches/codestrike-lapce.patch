@@ -555,7 +555,7 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd..c29f270 100644
+index 0cc1edd..1b20a6e 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
 @@ -5,0 +6 @@ use floem::{
@@ -766,7 +766,7 @@ index 0cc1edd..c29f270 100644
 +                        }
 +                        rows.into_iter().enumerate().collect::<Vec<_>>()
 +                    },
-+                    |(index, _)| *index,
++                    |(index, (is_file, row))| (*index, *is_file, row.clone()),
 +                    move |(_, (is_file, row))| {
 +                        label(move || row.clone()).style(move |s| {
 +                            s.min_width(0.0)
