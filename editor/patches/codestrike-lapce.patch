@@ -555,30 +555,33 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd4..255d5155 100644
+index 0cc1edd..baad250 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
-@@ -8 +8,3 @@
+@@ -7,2 +7,5 @@ use floem::{
+-    style::{CursorStyle, Style},
 -    views::{Decorators, container, label, scroll, stack, svg, virtual_stack},
++    style::{CursorStyle, FlexWrap, Style},
 +    views::{
-+        Decorators, container, dyn_stack, label, scroll, stack, svg, virtual_stack,
++        Decorators, button, container, dyn_stack, label, scroll, stack, svg,
++        virtual_stack,
 +    },
-@@ -37,0 +40,2 @@ pub fn global_search_panel(
+@@ -37,0 +41,2 @@ pub fn global_search_panel(
 +    let replace_expanded = global_search.replace_expanded;
 +    let replace_focus = global_search.replace_focus;
-@@ -40 +44,3 @@ pub fn global_search_panel(
+@@ -40 +45,3 @@ pub fn global_search_panel(
 -    let is_focused = move || focus.get() == Focus::Panel(PanelKind::Search);
 +    let is_focused = move || {
 +        focus.get() == Focus::Panel(PanelKind::Search) && !replace_focus.get()
 +    };
-@@ -91,0 +98 @@ pub fn global_search_panel(
+@@ -91,0 +99 @@ pub fn global_search_panel(
 +                replace_focus.set(false);
-@@ -104 +111,3 @@ pub fn global_search_panel(
+@@ -104 +112,3 @@ pub fn global_search_panel(
 -        search_result(workspace, global_search, internal_command, config),
 +        workspace_replace_controls(global_search.clone(), config),
 +        search_result(workspace, global_search, internal_command, config)
 +            .style(move |s| s.apply_if(replace_expanded.get(), |s| s.hide())),
-@@ -109,0 +119,142 @@ pub fn global_search_panel(
+@@ -109,0 +120,213 @@ pub fn global_search_panel(
 +fn workspace_replace_controls(
 +    global_search: GlobalSearchData,
 +    config: ReadSignal<Arc<LapceConfig>>,
@@ -586,6 +589,7 @@ index 0cc1edd4..255d5155 100644
 +    let focus = global_search.common.focus;
 +    let status = global_search.replace_status;
 +    let preview = global_search.replace_preview;
++    let applied = global_search.applied_replace;
 +    let expanded = global_search.replace_expanded;
 +    let replace_focus = global_search.replace_focus;
 +    let replace_editor = global_search.replace_editor.clone();
@@ -611,14 +615,24 @@ index 0cc1edd4..255d5155 100644
 +    let replacement_input_id = replacement_input.id();
 +
 +    stack((
-+        label(move || {
-+            if expanded.get() {
-+                "Workspace replace (open)".to_string()
-+            } else {
-+                "Workspace replace (closed)".to_string()
-+            }
-+        })
-+        .on_click_stop(move |_| {
++        button(stack((
++            svg(move || {
++                config.get().ui_svg(if expanded.get() {
++                    LapceIcons::ITEM_OPENED
++                } else {
++                    LapceIcons::ITEM_CLOSED
++                })
++            })
++            .style(move |s| {
++                let size = config.get().ui.icon_size() as f32;
++                s.size(size, size)
++                    .min_size(size, size)
++                    .color(config.get().color(LapceColor::LAPCE_ICON_ACTIVE))
++            }),
++            label(|| "Workspace replace".to_string()),
++        ))
++        .style(|s| s.items_center().gap(6.0)))
++        .action(move || {
 +            expanded.update(|open| *open = !*open);
 +            if expanded.get_untracked() {
 +                replace_focus.set(true);
@@ -626,49 +640,65 @@ index 0cc1edd4..255d5155 100644
 +                replacement_input_id.request_focus();
 +            }
 +        })
-+        .style(|s| s.padding(8.0).hover(|s| s.cursor(CursorStyle::Pointer))),
++        .style(move |s| {
++            s.width_pct(100.0)
++                .padding(8.0)
++                .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
++                .hover(|s| {
++                    s.cursor(CursorStyle::Pointer).background(
++                        config.get().color(LapceColor::PANEL_HOVERED_BACKGROUND),
++                    )
++                })
++                .focus_visible(|s| {
++                    s.border(1.0)
++                        .border_color(config.get().color(LapceColor::LAPCE_ICON_ACTIVE))
++                })
++        }),
 +        stack((
-+            label(|| "Replace across workspace".to_string())
-+                .style(|s| s.font_bold()),
++            label(|| "Replace with".to_string())
++                .style(|s| s.font_bold().padding_bottom(4.0)),
 +            replacement_input,
 +            stack((
-+                label(|| "Preview changes".to_string())
-+                    .on_click_stop(move |_| {
-+                        preview_action.preview_workspace_replace()
++                button("Preview changes")
++                    .action(move || preview_action.preview_workspace_replace())
++                    .disabled(move || applied.get().is_some())
++                    .style(move |s| workspace_replace_button_style(s, config)),
++                button("Apply preview")
++                    .action(move || apply_action.apply_workspace_replace())
++                    .disabled(move || {
++                        applied.get().is_some()
++                            || preview
++                                .get()
++                                .map_or(true, |plan| plan.match_count() == 0)
 +                    })
-+                    .style(move |s| {
-+                        s.padding(6.0)
-+                            .border(1.0)
-+                            .border_color(
-+                                config.get().color(LapceColor::LAPCE_BORDER),
-+                            )
-+                            .hover(|s| s.cursor(CursorStyle::Pointer))
-+                    }),
-+                label(|| "Apply preview".to_string())
-+                    .on_click_stop(move |_| apply_action.apply_workspace_replace())
-+                    .style(move |s| {
-+                        s.padding(6.0)
-+                            .border(1.0)
-+                            .border_color(
-+                                config.get().color(LapceColor::LAPCE_BORDER),
-+                            )
-+                            .hover(|s| s.cursor(CursorStyle::Pointer))
-+                    }),
-+                label(|| "Checked Undo".to_string())
-+                    .on_click_stop(move |_| undo_action.undo_workspace_replace())
-+                    .style(move |s| {
-+                        s.padding(6.0)
-+                            .border(1.0)
-+                            .border_color(
-+                                config.get().color(LapceColor::LAPCE_BORDER),
-+                            )
-+                            .hover(|s| s.cursor(CursorStyle::Pointer))
-+                    }),
++                    .style(move |s| workspace_replace_button_style(s, config)),
++                button("Undo last replace")
++                    .action(move || undo_action.undo_workspace_replace())
++                    .disabled(move || applied.get().is_none())
++                    .style(move |s| workspace_replace_button_style(s, config)),
 +            ))
-+            .style(|s| s.items_center()),
++            .style(|s| {
++                s.width_pct(100.0)
++                    .flex_wrap(FlexWrap::Wrap)
++                    .gap(6.0)
++                    .padding_top(10.0)
++            }),
 +            label(move || status.get()).style(move |s| {
-+                s.color(config.get().color(LapceColor::EDITOR_DIM))
++                s.color(config.get().color(LapceColor::EDITOR_FOREGROUND))
 +                    .min_width(0.0)
++                    .padding_vert(8.0)
++            }),
++            label(move || {
++                if preview.get().is_some() {
++                    "Previewed changes".to_string()
++                } else {
++                    "Preview results will appear here.".to_string()
++                }
++            })
++            .style(move |s| {
++                s.color(config.get().color(LapceColor::EDITOR_FOREGROUND))
++                    .font_bold()
++                    .padding_bottom(4.0)
 +            }),
 +            scroll(
 +                dyn_stack(
@@ -682,51 +712,95 @@ index 0cc1edd4..255d5155 100644
 +                                .path
 +                                .strip_prefix(&plan.root)
 +                                .unwrap_or(&file.path);
-+                            rows.push(format!(
++                            rows.push((true, format!(
 +                                "{} ({} matches)",
 +                                relative.display(),
 +                                file.matches.len()
-+                            ));
++                            )));
 +                            for found in &file.matches {
-+                                rows.push(format!(
++                                rows.push((false, format!(
 +                                    "  {}:{}  {:?} => {:?}  | {}",
 +                                    found.line,
 +                                    found.column + 1,
 +                                    found.found,
 +                                    found.replacement,
 +                                    found.context,
-+                                ));
++                                )));
 +                            }
 +                        }
 +                        rows.into_iter().enumerate().collect::<Vec<_>>()
 +                    },
 +                    |(index, _)| *index,
-+                    move |(_, row)| {
-+                        label(move || row.clone()).style(|s| {
-+                            s.min_width(0.0).text_ellipsis().padding_vert(2.0)
++                    move |(_, (is_file, row))| {
++                        label(move || row.clone()).style(move |s| {
++                            s.min_width(0.0)
++                                .width_pct(100.0)
++                                .text_ellipsis()
++                                .padding_vert(if is_file { 5.0 } else { 3.0 })
++                                .padding_left(if is_file { 6.0 } else { 12.0 })
++                                .apply_if(is_file, |s| {
++                                    s.font_bold().background(config.get().color(
++                                        LapceColor::PANEL_HOVERED_BACKGROUND,
++                                    ))
++                                })
 +                        })
 +                    },
 +                )
 +                .style(|s| s.flex_col()),
 +            )
-+            .style(|s| s.height(90.0).width_pct(100.0)),
++            .style(|s| s.flex_grow(1.0).min_height(0.0).width_pct(100.0)),
 +        ))
-+        .style(|s| s.width_pct(100.0).padding(10.0).flex_col())
++        .style(|s| {
++            s.width_pct(100.0)
++                .padding(10.0)
++                .flex_col()
++                .flex_grow(1.0)
++                .min_height(0.0)
++        })
 +        .style(move |s| {
 +            s.width_pct(100.0)
-+                .height(200.0)
 +                .apply_if(!expanded.get(), |s| s.hide())
 +        }),
 +    ))
-+    .style(|s| s.width_pct(100.0).flex_col().z_index(2))
++    .style(move |s| {
++        s.width_pct(100.0)
++            .flex_col()
++            .z_index(2)
++            .apply_if(expanded.get(), |s| s.flex_grow(1.0).min_height(0.0))
++    })
 +}
 +
-@@ -280 +431 @@ fn search_result(
++fn workspace_replace_button_style(
++    style: Style,
++    config: ReadSignal<Arc<LapceConfig>>,
++) -> Style {
++    style
++        .min_width(108.0)
++        .flex_grow(1.0)
++        .padding(7.0)
++        .border(1.0)
++        .border_radius(6.0)
++        .border_color(config.get().color(LapceColor::LAPCE_BORDER))
++        .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
++        .hover(|s| {
++            s.cursor(CursorStyle::Pointer)
++                .background(config.get().color(LapceColor::PANEL_HOVERED_BACKGROUND))
++        })
++        .focus_visible(|s| {
++            s.border_color(config.get().color(LapceColor::LAPCE_ICON_ACTIVE))
++        })
++        .disabled(|s| {
++            s.color(config.get().color(LapceColor::EDITOR_DIM))
++                .cursor(CursorStyle::Default)
++        })
++}
++
+@@ -280 +503 @@ fn search_result(
 -                                                        EditorPosition::Line(
 +                                                        EditorPosition::LineCol(
-@@ -282,0 +434 @@ fn search_result(
+@@ -282,0 +506 @@ fn search_result(
 +                                                            start,
-@@ -308 +460 @@ fn search_result(
+@@ -308 +532 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
 +    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
