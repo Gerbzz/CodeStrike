@@ -555,12 +555,10 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd..1b20a6e 100644
+index 0cc1edd..5d2b363 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
-@@ -5,0 +6 @@ use floem::{
-+    keyboard::{KeyCode, PhysicalKey},
-@@ -7,2 +8,5 @@ use floem::{
+@@ -7,2 +7,5 @@ use floem::{
 -    style::{CursorStyle, Style},
 -    views::{Decorators, container, label, scroll, stack, svg, virtual_stack},
 +    style::{CursorStyle, FlexWrap, Style},
@@ -568,22 +566,22 @@ index 0cc1edd..1b20a6e 100644
 +        Decorators, button, container, dyn_stack, label, scroll, stack, svg,
 +        virtual_stack,
 +    },
-@@ -37,0 +42,2 @@ pub fn global_search_panel(
+@@ -37,0 +41,2 @@ pub fn global_search_panel(
 +    let replace_expanded = global_search.replace_expanded;
 +    let replace_focus = global_search.replace_focus;
-@@ -40 +46,3 @@ pub fn global_search_panel(
+@@ -40 +45,3 @@ pub fn global_search_panel(
 -    let is_focused = move || focus.get() == Focus::Panel(PanelKind::Search);
 +    let is_focused = move || {
 +        focus.get() == Focus::Panel(PanelKind::Search) && !replace_focus.get()
 +    };
-@@ -91,0 +100 @@ pub fn global_search_panel(
+@@ -91,0 +99 @@ pub fn global_search_panel(
 +                replace_focus.set(false);
-@@ -104 +113,3 @@ pub fn global_search_panel(
+@@ -104 +112,3 @@ pub fn global_search_panel(
 -        search_result(workspace, global_search, internal_command, config),
 +        workspace_replace_controls(global_search.clone(), config),
 +        search_result(workspace, global_search, internal_command, config)
 +            .style(move |s| s.apply_if(replace_expanded.get(), |s| s.hide())),
-@@ -109,0 +121,247 @@ pub fn global_search_panel(
+@@ -109,0 +120,213 @@ pub fn global_search_panel(
 +fn workspace_replace_controls(
 +    global_search: GlobalSearchData,
 +    config: ReadSignal<Arc<LapceConfig>>,
@@ -598,49 +596,9 @@ index 0cc1edd..1b20a6e 100644
 +    let preview_action = global_search.clone();
 +    let apply_action = global_search.clone();
 +    let undo_action = global_search.clone();
-+    let enter_action = global_search.clone();
-+    let preview_button = button("Preview changes")
-+        .action(move || preview_action.preview_workspace_replace())
-+        .disabled(move || applied.get().is_some())
-+        .style(move |s| workspace_replace_button_style(s, config));
-+    let preview_button_id = preview_button.id();
-+    let undo_button = button("Undo last replace")
-+        .action(move || undo_action.undo_workspace_replace())
-+        .disabled(move || applied.get().is_none())
-+        .style(move |s| workspace_replace_button_style(s, config));
-+    let undo_button_id = undo_button.id();
 +    let replacement_input = TextInputBuilder::new()
 +        .is_focused(move || {
 +            focus.get() == Focus::Panel(PanelKind::Search) && replace_focus.get()
-+        })
-+        .before_key_down(move |event| {
-+            if !event.modifiers.is_empty() {
-+                return false;
-+            }
-+            match event.key.physical_key {
-+                PhysicalKey::Code(KeyCode::Tab) => {
-+                    replace_focus.set(false);
-+                    if applied.get_untracked().is_some() {
-+                        undo_button_id.request_focus();
-+                    } else {
-+                        preview_button_id.request_focus();
-+                    }
-+                    true
-+                }
-+                PhysicalKey::Code(KeyCode::Enter) => {
-+                    if applied.get_untracked().is_none() {
-+                        enter_action.preview_workspace_replace();
-+                    }
-+                    replace_focus.set(false);
-+                    if applied.get_untracked().is_some() {
-+                        undo_button_id.request_focus();
-+                    } else {
-+                        preview_button_id.request_focus();
-+                    }
-+                    true
-+                }
-+                _ => false,
-+            }
 +        })
 +        .build_editor(replace_editor)
 +        .on_event_cont(EventListener::PointerDown, move |_| {
@@ -701,7 +659,10 @@ index 0cc1edd..1b20a6e 100644
 +                .style(|s| s.font_bold().padding_bottom(4.0)),
 +            replacement_input,
 +            stack((
-+                preview_button,
++                button("Preview changes")
++                    .action(move || preview_action.preview_workspace_replace())
++                    .disabled(move || applied.get().is_some())
++                    .style(move |s| workspace_replace_button_style(s, config)),
 +                button("Apply preview")
 +                    .action(move || apply_action.apply_workspace_replace())
 +                    .disabled(move || {
@@ -711,7 +672,10 @@ index 0cc1edd..1b20a6e 100644
 +                                .map_or(true, |plan| plan.match_count() == 0)
 +                    })
 +                    .style(move |s| workspace_replace_button_style(s, config)),
-+                undo_button,
++                button("Undo last replace")
++                    .action(move || undo_action.undo_workspace_replace())
++                    .disabled(move || applied.get().is_none())
++                    .style(move |s| workspace_replace_button_style(s, config)),
 +            ))
 +            .style(|s| {
 +                s.width_pct(100.0)
@@ -831,12 +795,12 @@ index 0cc1edd..1b20a6e 100644
 +        })
 +}
 +
-@@ -280 +538 @@ fn search_result(
+@@ -280 +503 @@ fn search_result(
 -                                                        EditorPosition::Line(
 +                                                        EditorPosition::LineCol(
-@@ -282,0 +541 @@ fn search_result(
+@@ -282,0 +506 @@ fn search_result(
 +                                                            start,
-@@ -308 +567 @@ fn search_result(
+@@ -308 +532 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
 +    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
@@ -863,42 +827,6 @@ index 81455b2d..90657bfe 100644
 @@ -521 +521 @@ fn get_run_config_by_name(&self, name: &str) -> Option<RunDebugConfig> {
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
-diff --git a/lapce-app/src/text_input.rs b/lapce-app/src/text_input.rs
-index b6cbbdb..226c416 100644
---- a/lapce-app/src/text_input.rs
-+++ b/lapce-app/src/text_input.rs
-@@ -58,0 +59 @@ pub struct TextInputBuilder {
-+    before_key_down: Option<Box<dyn Fn(&floem::keyboard::KeyEvent) -> bool>>,
-@@ -73,0 +75 @@ impl TextInputBuilder {
-+            before_key_down: None,
-@@ -97,0 +100,9 @@ impl TextInputBuilder {
-+    /// Handle a key before the editor keymap. Return true to stop propagation.
-+    pub fn before_key_down(
-+        mut self,
-+        handler: impl Fn(&floem::keyboard::KeyEvent) -> bool + 'static,
-+    ) -> Self {
-+        self.before_key_down = Some(Box::new(handler));
-+        self
-+    }
-+
-@@ -126 +137,7 @@ impl TextInputBuilder {
--        text_input_full(editor, self.key_focus, is_focused, keyboard_focus)
-+        text_input_full(
-+            editor,
-+            self.key_focus,
-+            is_focused,
-+            keyboard_focus,
-+            self.before_key_down,
-+        )
-@@ -139,0 +157 @@ fn text_input_full<T: KeyPressFocus + 'static>(
-+    before_key_down: Option<Box<dyn Fn(&floem::keyboard::KeyEvent) -> bool>>,
-@@ -256,0 +275,6 @@ fn text_input_full<T: KeyPressFocus + 'static>(
-+            if before_key_down
-+                .as_ref()
-+                .is_some_and(|handler| handler(key_event))
-+            {
-+                return EventPropagation::Stop;
-+            }
 diff --git a/lapce-app/src/title.rs b/lapce-app/src/title.rs
 index 59336034..b6cdf3db 100644
 --- a/lapce-app/src/title.rs

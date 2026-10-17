@@ -308,15 +308,11 @@ try {
         # subsequent exact-byte Apply assertion also proves that this input,
         # rather than the search query, received the replacement string.
         [System.Windows.Forms.SendKeys]::SendWait($replacement)
-        Start-Sleep -Milliseconds 600
         Capture-Candidate 'workspace_replace_ready'
         # Captures are resized to 960 px from the runner's 1024 px screen.
         # The new button row appears at capture y=407-420, or window y=434-448.
         # The three responsive buttons span the panel at this runner width.
-        [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-        Start-Sleep -Milliseconds 250
-        Capture-Candidate 'workspace_replace_preview_focused'
-        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        Click-WindowOffset $editor 330 440
         Start-Sleep -Seconds 2
         Capture-Candidate 'workspace_replace_preview'
         if (-not (Wait-FileBytes $first $firstOriginal) -or -not (Wait-FileBytes $second $secondOriginal)) {
