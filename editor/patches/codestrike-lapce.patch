@@ -555,7 +555,7 @@ index fb850137..c7ac84ff 100644
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd..70e1a82 100644
+index 0cc1edd..c29f270 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
 @@ -5,0 +6 @@ use floem::{
@@ -831,10 +831,10 @@ index 0cc1edd..70e1a82 100644
 +        })
 +}
 +
-@@ -280 +540 @@ fn search_result(
+@@ -280 +538 @@ fn search_result(
 -                                                        EditorPosition::Line(
 +                                                        EditorPosition::LineCol(
-@@ -282,0 +543 @@ fn search_result(
+@@ -282,0 +541 @@ fn search_result(
 +                                                            start,
 @@ -308 +567 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
