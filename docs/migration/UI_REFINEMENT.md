@@ -54,6 +54,16 @@ reanchored before the
 [final failed keyboard run 38991868364](https://github.com/Gerbzz/CodeStrike/actions/runs/38991868364).
 Keyboard activation needs a deliberate focus design and passing native GUI run.
 
+The restored button workflow and content-keyed preview rows compiled in
+[hosted run 38992687133](https://github.com/Gerbzz/CodeStrike/actions/runs/38992687133).
+Its startup, three-tab save/reopen, and workspace replacement GUI steps all
+passed. The replacement step again checked preview without writes, stale-file
+Apply refusal, exact-byte Apply, ignored/read-only/unsupported preservation,
+and Undo refusal after a newer edit followed by restoration of original bytes.
+This run did not exercise keyboard activation or a changed replacement string
+with an unchanged match count; the latter behavior follows Floem's documented
+content-key semantics and remains a specific GUI regression case to add.
+
 The [preview](../../assets/screenshots/codestrike-design-replace-preview-app.png)
 and [conflict](../../assets/screenshots/codestrike-design-apply-conflict-app.png)
 images are exact top-left 750 x 563 pixel app-window crops of the run's
