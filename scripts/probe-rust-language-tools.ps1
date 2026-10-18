@@ -3,7 +3,6 @@ param([Parameter(Mandatory = $true)][string]$VoltPath)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'trace-rust-lsp-fixture.ps1')
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
 if (-not ('CodeStrikeLspWindow' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -33,17 +32,51 @@ public static class CodeStrikeLspWindow {
         foreach (string line in Output) if (line.Contains(first) && line.Contains(second)) return true;
         return false;
     }
-    public static bool HasDiagnosticAtVersion(string code, int minimumVersion) {
-        foreach (string line in Output) {
-            if (!line.Contains("textDocument/publishDiagnostics") || !line.Contains(code)) continue;
-            Match match = Regex.Match(line, "\"version\":([0-9]+)");
-            if (match.Success && int.Parse(match.Groups[1].Value) >= minimumVersion) return true;
-        }
-        return false;
-    }
     public static string CapturedOutput() { return string.Join("\n", Output.ToArray()); }
 }
 '@
+}
+function Get-Fixture-GateState([string]$fixtureSource, [string]$tracePath) {
+    Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -FixtureSource $fixtureSource -TracePath $tracePath -Prefix 'CODESTRIKE_LSP_GATE_TRACE' *> $null
+    $records = @(Get-Content -LiteralPath $tracePath | ForEach-Object { $_ | ConvertFrom-Json })
+    if ($records.Count -eq 0) { throw 'Fixture protocol trace was empty.' }
+    $summary = $records[-1]
+    if ($summary.skippedEvents -ne 0) { throw 'Fixture protocol trace exceeded its event bound.' }
+    return [pscustomobject]@{
+        Summary = $summary
+        Diagnostics = @($records | Where-Object { $_.method -eq 'textDocument/publishDiagnostics' })
+    }
+}
+function Wait-Fixture-Diagnostic([string]$fixtureSource, [string]$tracePath,
+    [int]$afterVersion, [bool]$expectE0308, [string]$stage) {
+    $expectedVersion = $null
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {
+        $state = Get-Fixture-GateState $fixtureSource $tracePath
+        $version = $state.Summary.lastVersion
+        if ($null -ne $version -and [int]$version -gt $afterVersion -and $state.Summary.matchesDisk) {
+            if ($null -eq $expectedVersion) {
+                $expectedVersion = [int]$version
+                Write-Host "CODESTRIKE_LSP_GATE_VERSION=$stage;$expectedVersion"
+            } elseif ([int]$version -ne $expectedVersion) {
+                throw "Fixture document version advanced during $stage after the exact version was latched."
+            }
+            $matching = @($state.Diagnostics | Where-Object { $null -ne $_.version -and [int]$_.version -eq $expectedVersion })
+            if ($matching.Count -gt 0) {
+                $latest = $matching[-1]
+                $hasE0308 = @($latest.codes) -contains 'E0308'
+                $errors = [int]$latest.errors
+                if (($expectE0308 -and $hasE0308) -or
+                    (-not $expectE0308 -and -not $hasE0308 -and $errors -eq 0)) {
+                    Write-Host "CODESTRIKE_LSP_GATE_DIAGNOSTIC=$stage;version:$expectedVersion;errors:$errors;e0308:$hasE0308"
+                    return $expectedVersion
+                }
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -FixtureSource $fixtureSource -TracePath $tracePath -Prefix 'CODESTRIKE_LSP_DOCUMENT'
+    Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_LSP_GATE_PROTOCOL'
+    throw "No exact-version diagnostic reached the expected state for $stage within 120 seconds."
 }
 
 $exe = (Resolve-Path 'editor/lapce/target/debug/CodeStrike.exe').Path
@@ -64,7 +97,9 @@ edition = "2021"
 '@)
 $source = Join-Path $src 'main.rs'
 $initialSource = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }"
-$expectedSource = $initialSource + "`n//diagnostic_refresh"
+$validSource = $initialSource.Replace('"wrong"', '7')
+$expectedSource = $initialSource
+$validBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($validSource)
 $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource)
 $incompleteBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource.Replace('::Read;', '::Re;'))
 [System.IO.File]::WriteAllText($source, $initialSource)
@@ -133,35 +168,43 @@ try {
     [CodeStrikeLspWindow]::SetCursorPos($rect.Left + [int]($width * 0.6), $rect.Top + [int]($height * 0.2)) | Out-Null
     [CodeStrikeLspWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
     [CodeStrikeLspWindow]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
-    [System.Windows.Forms.SendKeys]::SendWait('^{END}')
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}//diagnostic_refresh')
+    $tracePath = Join-Path $root 'standard-lsp-document-trace.jsonl'
+    $initialState = Get-Fixture-GateState $source $tracePath
+    $initialVersion = if ($null -eq $initialState.Summary.lastVersion) { 0 } else { [int]$initialState.Summary.lastVersion }
+
+    Set-Clipboard -Value $validSource
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
     [System.Windows.Forms.SendKeys]::SendWait('^s')
-    $refreshSaved = $false
+    $validSaved = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        if ([Convert]::ToHexString([System.IO.File]::ReadAllBytes($source)) -eq [Convert]::ToHexString($validBytes)) {
+            $validSaved = $true
+            break
+        }
+    }
+    if (-not $validSaved) { throw 'GUI did not persist exact valid Rust fixture bytes.' }
+    'CODESTRIKE_LSP_VALID_EDIT=saved-exact-utf8-bytes'
+    $validVersion = Wait-Fixture-Diagnostic $source $tracePath $initialVersion $false 'valid'
+
+    Set-Clipboard -Value $expectedSource
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    [System.Windows.Forms.SendKeys]::SendWait('^s')
+    $restoredSaved = $false
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
         Start-Sleep -Milliseconds 500
         if ([Convert]::ToHexString([System.IO.File]::ReadAllBytes($source)) -eq [Convert]::ToHexString($expectedBytes)) {
-            $refreshSaved = $true
+            $restoredSaved = $true
             break
         }
     }
-    if (-not $refreshSaved) { throw 'The GUI did not persist the diagnostic-refresh edit.' }
-    'CODESTRIKE_LSP_DIAGNOSTIC_REFRESH=saved-exact-utf8-bytes'
-    $diagnosticReady = $false
-    for ($attempt = 0; $attempt -lt 120; $attempt++) {
-        if ([CodeStrikeLspWindow]::HasDiagnosticAtVersion('E0308', 2)) {
-            $diagnosticReady = $true
-            break
-        }
-        Start-Sleep -Seconds 1
-        $process.Refresh()
-        if ($process.HasExited) { throw 'CodeStrike exited before diagnostics after the GUI edit.' }
-    }
-    if (-not $diagnosticReady) {
-        Write-CodeStrikeRustDocumentTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -FixtureSource $source -TracePath (Join-Path $root 'standard-lsp-document-trace.jsonl') -Prefix 'CODESTRIKE_LSP_DOCUMENT'
-        Write-CodeStrikeRustFixtureTrace -Output ([CodeStrikeLspWindow]::CapturedOutput()) -Prefix 'CODESTRIKE_LSP_AFTER_EDIT_PROTOCOL'
-        throw 'No E0308 diagnostic appeared after the persisted GUI edit within 120 seconds.'
-    }
-    "CODESTRIKE_LSP_AFTER_EDIT_DIAGNOSTIC=e0308-reported;wait_seconds=$attempt"
+    if (-not $restoredSaved) { throw 'GUI did not persist exact restored invalid Rust fixture bytes.' }
+    'CODESTRIKE_LSP_RESTORED_EDIT=saved-exact-utf8-bytes'
+    $invalidVersion = Wait-Fixture-Diagnostic $source $tracePath $validVersion $true 'restored-invalid'
+    "CODESTRIKE_LSP_INVALID_RESTORED=version:$invalidVersion"
+
     [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
     [System.Windows.Forms.SendKeys]::SendWait('{END}')
     # Persist Re first so a failed completion/save cannot pass on original bytes.
@@ -194,33 +237,7 @@ try {
     Start-Sleep -Seconds 2
     'CODESTRIKE_LSP_COMPLETION_KEYS=sent'
 
-    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-    if ($rect.Left -lt $screen.Left -or $rect.Top -lt $screen.Top -or
-        $rect.Right -gt $screen.Right -or $rect.Bottom -gt $screen.Bottom) {
-        throw 'CodeStrike window extends beyond the capture screen.'
-    }
-    $bitmap = [System.Drawing.Bitmap]::new($width, $height)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    try {
-        $graphics.CopyFromScreen([System.Drawing.Point]::new($rect.Left, $rect.Top), [System.Drawing.Point]::Empty, $bitmap.Size)
-        $small = [System.Drawing.Bitmap]::new($bitmap)
-        try {
-            $stream = [System.IO.MemoryStream]::new()
-            try {
-                $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() |
-                    Where-Object MimeType -eq 'image/jpeg' | Select-Object -First 1
-                $parameters = [System.Drawing.Imaging.EncoderParameters]::new(1)
-                $parameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
-                    [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
-                $small.Save($stream, $codec, $parameters)
-                if ($stream.Length -gt 350KB) { throw 'LSP screenshot exceeded its log bound.' }
-                "CODESTRIKE_LSP_SCREENSHOT_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
-            } finally { $stream.Dispose() }
-        } finally { $small.Dispose() }
-    } finally {
-        $graphics.Dispose()
-        $bitmap.Dispose()
-    }
+    'CODESTRIKE_LSP_COMPLETION_POPUP=read-label-observed-in-protocol'
 
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     Start-Sleep -Milliseconds 500

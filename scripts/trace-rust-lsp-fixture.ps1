@@ -36,7 +36,7 @@ function Write-CodeStrikeRustFixtureTrace {
                 $codes = @($message.params.diagnostics | ForEach-Object code) -join ','
                 "uri=$($message.params.uri);version=$($message.params.version);count=$(@($message.params.diagnostics).Count);codes=$codes"
             }
-            'rust-analyzer/serverStatus' { "health=$($message.params.health);quiescent=$($message.params.quiescent)" }
+            'experimental/serverStatus' { "health=$($message.params.health);quiescent=$($message.params.quiescent)" }
             'window/logMessage' {
                 $messageText = [string]$message.params.message
                 "type=$($message.params.type);message=$($messageText.Substring(0, [Math]::Min($messageText.Length, 160)))"
@@ -94,7 +94,7 @@ function Write-CodeStrikeRustDocumentTrace {
             if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
             continue
         }
-        if ($method -eq 'rust-analyzer/serverStatus') {
+        if ($method -eq 'experimental/serverStatus') {
             $record = [ordered]@{ method = $method; health = $message.params.health; quiescent = $message.params.quiescent }
             if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
             continue
@@ -131,7 +131,9 @@ function Write-CodeStrikeRustDocumentTrace {
             $record = [ordered]@{ method = $method; uri = $uri; id = $message.id; position = $message.params.position }
         } else {
             $codes = @($message.params.diagnostics | ForEach-Object code)
-            $record = [ordered]@{ method = $method; uri = $uri; version = $message.params.version; codes = $codes }
+            $errors = @($message.params.diagnostics | Where-Object { [int]$_.severity -eq 1 }).Count
+            $sources = @($message.params.diagnostics | ForEach-Object source | Select-Object -Unique)
+            $record = [ordered]@{ method = $method; uri = $uri; version = $message.params.version; codes = $codes; errors = $errors; sources = $sources }
         }
         if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
     }
