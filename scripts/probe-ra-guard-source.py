@@ -43,8 +43,10 @@ INSTRUMENTED = """                let guard_vfs_done = self.vfs_done;
                     && guard_workspace_ready
                     && (!guard_build_enabled || (guard_build_last_none && !guard_build_in_progress))
                     && (!guard_proc_enabled || (guard_proc_last_none && !guard_proc_in_progress));
-                let experiment_requested = std::env::var_os("CODESTRIKE_RA_GUARD_FLAG")
-                    .is_some_and(|path| std::path::Path::new(&path).is_file());
+                let experiment_requested = guard_document_version == 3
+                    && (std::env::var_os("CODESTRIKE_RA_GUARD_FLAG")
+                        .and_then(|path| std::fs::read_to_string(path).ok())
+                        .and_then(|value| value.trim().parse::<usize>().ok()) == Some(generation));
                 let experiment_ready = guard_vfs_done && guard_workspace_ready
                     && !guard_build_in_progress && !guard_proc_in_progress;
                 let fetch_semantic = original_fetch_semantic
@@ -63,12 +65,52 @@ FIELDS = (
     "original_fetch_semantic", "experiment_requested", "fetch_semantic",
 )
 MARKER = re.compile(r"CODESTRIKE_GUARD generation=(\d+) document_version=(-?\d+)\s+((?:[a-z_]+=(?:true|false)\s*){11})")
+SOURCE_EDITS = (
+    (
+        """                    if fetch_semantic {
+                        let diags = std::panic::catch_unwind(|| {""",
+        """                    if fetch_semantic {
+                        tracing::warn!("CODESTRIKE_SEMANTIC_BEGIN generation={:?} document_version={}",
+                                       generation, guard_document_version);
+                        let diags = std::panic::catch_unwind(|| {""",
+    ),
+    (
+        """                        sender
+                            .send(Task::Diagnostics(DiagnosticsTaskKind::Semantic(
+                                generation, diags,""",
+        """                        tracing::warn!("CODESTRIKE_SEMANTIC_END generation={:?} document_version={} file_count={}",
+                                       generation, guard_document_version, diags.len());
+                        sender
+                            .send(Task::Diagnostics(DiagnosticsTaskKind::Semantic(
+                                generation, diags,""",
+    ),
+    (
+        """            Task::Diagnostics(kind) => {
+                self.diagnostics.set_native_diagnostics(kind);""",
+        """            Task::Diagnostics(kind) => {
+                if let DiagnosticsTaskKind::Semantic(generation, _) = &kind {
+                    tracing::warn!("CODESTRIKE_SEMANTIC_APPLY generation={:?}", generation);
+                }
+                self.diagnostics.set_native_diagnostics(kind);""",
+    ),
+    (
+        """                self.publish_diagnostics(uri, version, diagnostics);""",
+        """                tracing::warn!("CODESTRIKE_PUBLISH document_version={} diagnostic_count={}",
+                               version.unwrap_or(-1), diagnostics.len());
+                self.publish_diagnostics(uri, version, diagnostics);""",
+    ),
+)
 
 
 def patch_source(source):
     if source.count(ORIGINAL) != 1:
         raise RuntimeError("Pinned semantic guard differs from the reviewed source")
-    return source.replace(ORIGINAL, INSTRUMENTED, 1)
+    source = source.replace(ORIGINAL, INSTRUMENTED, 1)
+    for before, after in SOURCE_EDITS:
+        if source.count(before) != 1:
+            raise RuntimeError("Pinned semantic computation/publication differs from reviewed source")
+        source = source.replace(before, after, 1)
+    return source
 
 
 def classify_guard(line):
@@ -82,6 +124,8 @@ def classify_guard(line):
     event["kind"] = "guard"
     event["generation"] = int(match.group(1))
     event["document_version"] = int(match.group(2))
+    if event["experiment_requested"] and event["document_version"] != 3:
+        raise RuntimeError("Experimental scheduling was requested outside document v3")
     # Detect accidental drift in the rewritten but equivalent predicate.
     expected = (event["vfs_done"] and event["workspace_ready"]
                 and (not event["build_enabled"] or
@@ -98,12 +142,30 @@ def classify_guard(line):
     return event
 
 
+def classify_path_event(line):
+    for marker, kind, fields in (
+        ("CODESTRIKE_SEMANTIC_BEGIN", "semantic_begin", ("generation", "document_version")),
+        ("CODESTRIKE_SEMANTIC_END", "semantic_end", ("generation", "document_version",
+                                                   "file_count")),
+        ("CODESTRIKE_SEMANTIC_APPLY", "semantic_apply", ("generation",)),
+        ("CODESTRIKE_PUBLISH", "publish", ("document_version", "diagnostic_count")),
+    ):
+        if marker not in line:
+            continue
+        values = dict((key, int(value)) for key, value in
+                      re.findall(r"([a-z_]+)=(-?\d+)", line.split(marker, 1)[1]))
+        if not all(key in values for key in fields):
+            raise RuntimeError("Incomplete semantic path marker: " + marker)
+        return {"kind": kind, **{key: values[key] for key in fields}}
+    return None
+
+
 def instrument(checkout):
     source_path = checkout / GUARD_SOURCE
     before = source_path.read_text(encoding="utf-8")
     after = patch_source(before)
     source_path.write_text(after, encoding="utf-8", newline="\n")
-    print("CODESTRIKE_GUARD_SOURCE_PATCH=single reviewed guard;predicate-equivalent;logging-only", flush=True)
+    print("CODESTRIKE_GUARD_SOURCE_PATCH=reviewed guard;fixture-generation-override;source-only", flush=True)
 
 
 def load_probe(path):
@@ -113,7 +175,7 @@ def load_probe(path):
     prior_classifier = module.classify_main_loop_line
 
     def classifier(line):
-        event = classify_guard(line) or prior_classifier(line)
+        event = classify_guard(line) or classify_path_event(line) or prior_classifier(line)
         if event is not None and event["kind"] in ("syntax_result", "semantic_result"):
             match = re.search(r"Diagnostics\((?:Syntax|Semantic)\((\d+)", line)
             if match:
@@ -137,7 +199,7 @@ def read_server_text(module, client, uri, request_id, expected, source):
             reply.get("result", "").encode("utf-8") == source.read_bytes())
 
 
-def run_case(module, binary, case, base, flag_path, experimental):
+def run_case(module, binary, case, base, flag_path, target_generation):
     root, source = module.make_fixture(base)
     uri = source.as_uri()
     root_uri = root.as_uri() + "/"
@@ -216,8 +278,8 @@ def run_case(module, binary, case, base, flag_path, experimental):
             time.sleep(0.25)
         if barrier is None:
             raise RuntimeError(case + " did not reach the common readiness barrier")
-        if experimental:
-            flag_path.write_text("fixture-only diagnostic override\n", encoding="utf-8")
+        if target_generation is not None:
+            flag_path.write_text(str(target_generation) + "\n", encoding="utf-8")
 
         source.write_bytes(module.VALID.encode("utf-8"))
         client.send("textDocument/didChange", {
@@ -298,28 +360,33 @@ def compare(probe_path, instrumented_binary):
         results = []
         for case, enabled in (("instrumented_baseline", False),
                               ("conditional_forced_gate", True)):
+            target_generation = None
             if enabled:
                 baseline = results[0]
                 v3_time = baseline["sent"][-1]["t_ms"]
                 after_v3 = [item for item in baseline["events"]
                             if item.get("kind") == "guard" and item.get("document_version") == 3
                             and item.get("t_ms", -1) >= v3_time]
-                justified = any(item["vfs_done"] and item["workspace_ready"]
-                                and item["build_enabled"] and item["proc_enabled"]
-                                and not item["build_last_none"] and not item["proc_last_none"]
-                                and not item["build_in_progress"]
-                                and not item["proc_in_progress"]
-                                and not item["original_fetch_semantic"] for item in after_v3)
-                if not justified:
+                eligible = [item for item in after_v3 if
+                            item["vfs_done"] and item["workspace_ready"]
+                            and item["build_enabled"] and item["proc_enabled"]
+                            and not item["build_last_none"] and not item["proc_last_none"]
+                            and not item["build_in_progress"]
+                            and not item["proc_in_progress"]
+                            and not item["original_fetch_semantic"]]
+                if not eligible:
                     print("CODESTRIKE_GUARD_EXPERIMENT_DECISION=no_counterfactual;"
                           "baseline did not observe the proposed blocking state after v3",
                           flush=True)
                     break
+                target_generation = eligible[0]["generation"]
+                print("CODESTRIKE_GUARD_EXPERIMENT_TARGET_GENERATION=" +
+                      str(target_generation), flush=True)
             buffer = io.StringIO()
             try:
                 with contextlib.redirect_stdout(buffer):
                     result = run_case(module, instrumented_binary, case,
-                                      scratch / case, flag_path, enabled)
+                                      scratch / case, flag_path, target_generation)
             except Exception:
                 for line in buffer.getvalue().splitlines():
                     if line.startswith("CODESTRIKE_GUARD_EXPERIMENT_ABORT="):
@@ -329,6 +396,14 @@ def compare(probe_path, instrumented_binary):
             print("CODESTRIKE_GUARD_EXPERIMENT=" +
                   json.dumps(result, separators=(",", ":")), flush=True)
         if len(results) == 2:
+            forced_events = results[1]["events"]
+            v3_guards = [event for event in forced_events if event.get("kind") == "guard"
+                         and event.get("document_version") == 3]
+            v3_generation = v3_guards[-1]["generation"] if v3_guards else None
+            semantic_path = {kind: any(event.get("kind") == kind and
+                                       event.get("generation") == v3_generation
+                                       for event in forced_events)
+                             for kind in ("semantic_begin", "semantic_end", "semantic_apply")}
             print("CODESTRIKE_GUARD_EXPERIMENT_COMPARISON=" + json.dumps({
                 "same_source_and_binary": True,
                 "same_capabilities_config_fixture_and_edit_sequence": True,
@@ -336,11 +411,25 @@ def compare(probe_path, instrumented_binary):
                                               for result in results),
                 "baseline_push_v3_e0308": results[0]["push_v3_e0308"],
                 "forced_push_v3_e0308": results[1]["push_v3_e0308"],
+                "target_generation": target_generation,
+                "forced_v3_generation": v3_generation,
+                "forced_target_override_observed": any(
+                    event.get("kind") == "guard" and
+                    event.get("generation") == target_generation and
+                    event.get("document_version") == 3 and
+                    event.get("experiment_requested") is True and
+                    event.get("fetch_semantic") is True
+                    for event in forced_events),
+                "forced_v3_semantic_path": semantic_path,
+                "forced_v3_publication_logged": any(
+                    event.get("kind") == "publish" and event.get("document_version") == 3
+                    for event in forced_events),
             }, separators=(",", ":")), flush=True)
 
 
 def self_test():
-    test = "before\n" + ORIGINAL + "\nafter\n"
+    test = "before\n" + ORIGINAL + "\n" + "\n".join(
+        before for before, _ in SOURCE_EDITS) + "\nafter\n"
     patched = patch_source(test)
     assert patched.count("CODESTRIKE_GUARD") == 1
     assert patched.startswith("before\n") and patched.endswith("\nafter\n")
@@ -349,6 +438,10 @@ def self_test():
                                     "original_fetch_semantic", "experiment_requested",
                                     "fetch_semantic") else "true") for key in FIELDS))["fetch_semantic"] is False
     assert classify_guard("WARN unrelated") is None
+    assert classify_path_event("WARN CODESTRIKE_SEMANTIC_END generation=4 "
+                               "document_version=3 file_count=1") == {
+                                   "kind": "semantic_end", "generation": 4,
+                                   "document_version": 3, "file_count": 1}
     assert re.match(r"^rust-analyzer 1\.99\.0 \(b940084d? ",
                     "rust-analyzer 1.99.0 (b940084 2026-09-28)")
     assert re.match(r"^rust-analyzer 1\.99\.0 \(b940084d? ",
