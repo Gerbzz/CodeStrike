@@ -78,8 +78,8 @@ def classify_main_loop_line(line):
     if "handle_event" not in line:
         return None
     for marker, kind in (
-        ("DidOpenTextDocument", "did_open"),
-        ("DidChangeTextDocument", "did_change"),
+        ('method: "textDocument/didOpen"', "did_open"),
+        ('method: "textDocument/didChange"', "did_change"),
         ("Diagnostics(Syntax", "syntax_result"),
         ("Diagnostics(Semantic", "semantic_result"),
         ("FetchBuildData", "build_data_event"),
@@ -669,6 +669,12 @@ def main():
                                  'available = true\nurl = "https://static.rust-lang.org/dist/fixture.tar.xz"\n')
         assert classify_main_loop_line("TRACE updating notifications for [FileId(0)]") == {
             "kind": "update_diagnostics", "subscriptions": 1}
+        assert classify_main_loop_line(
+            'DEBUG handle_event event=Notification { method: "textDocument/didOpen" }') == {
+                "kind": "did_open"}
+        assert classify_main_loop_line(
+            'DEBUG handle_event event=Notification { method: "textDocument/didChange" }') == {
+                "kind": "did_change"}
         assert classify_main_loop_line("DEBUG handle_event event=Task(Diagnostics(Semantic(1, [])))") == {
             "kind": "semantic_result"}
         assert prior_component_available(manifest)
