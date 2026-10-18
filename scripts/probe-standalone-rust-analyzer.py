@@ -382,7 +382,7 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
         except TimeoutError:
             print("CODESTRIKE_STANDALONE_TIMEOUT=" + case + ";reintroduced-v3-E0308", flush=True)
             # Query server text only after the original diagnostic window has expired.
-            client.send("rust-analyzer/viewFileText", {"textDocument": {"uri": source_uri}},
+            client.send("rust-analyzer/viewFileText", {"uri": source_uri},
                         request_id=4)
             try:
                 reply = client.wait_for(lambda msg: is_reply(msg, 4), source_uri, 6,
