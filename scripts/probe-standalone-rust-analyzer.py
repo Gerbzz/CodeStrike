@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 INVALID = 'use std::io::Read;\nfn main() { let value: i32 = "wrong"; println!("{value}"); }'
 VALID = 'use std::io::Read;\nfn main() { let value: i32 = 7; println!("{value}"); }'
+DISTINCT_INVALID = INVALID + '\n// restored v3 has distinct bytes\n'
 DEFAULT_OPTIONS = {"checkOnSave": False, "serverPath": "rust-analyzer"}
 DISABLED_OPTIONS = {**DEFAULT_OPTIONS, "cargo": {"buildScripts": {"enable": False}},
                     "procMacro": {"enable": False}}
@@ -284,7 +285,7 @@ def request_analyzer_status(client, source_uri, request_id, phase):
 
 def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds=155,
               expect_collisions=False, toolchain=None, ready_before_edit=False,
-              disk_timing="before", notify_save=False):
+              disk_timing="before", notify_save=False, discriminate_edits=False):
     if disk_timing not in ("before", "after", "none"):
         raise ValueError("Unknown fixture disk timing")
     root, source = make_fixture(base)
@@ -293,6 +294,9 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
     client = Client(argv, root, time.monotonic() + total_seconds, case, toolchain)
     stages = {"initial_error": False, "valid_removes_error": None, "reintroduced_error": False}
     valid_v2_published = False
+    v2_server_matches = None
+    v3_server_matches = None
+    v3_text = DISTINCT_INVALID if discriminate_edits else INVALID
     statuses = []
     print("CODESTRIKE_STANDALONE_FIXTURE=" + case + ";rust-cargo;toolchain:" +
           (toolchain or "runner-default") + ";options:" +
@@ -364,14 +368,34 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
                 print("CODESTRIKE_STANDALONE_VALID=" + case +
                       ";unobserved-after-empty-v1;removal-inconclusive", flush=True)
 
+        if discriminate_edits:
+            client.send("rust-analyzer/viewFileText", {"uri": source_uri}, request_id=5)
+            try:
+                reply = client.wait_for(lambda msg: is_reply(msg, 5), source_uri, 6,
+                                        "viewFileText response at valid v2")
+                server_text = reply.get("result")
+                v2_server_matches = isinstance(server_text, str) and server_text == VALID
+                observation = (
+                    {"error": str(reply["error"])[:180]} if "error" in reply else
+                    {"serverSha256": hashlib.sha256(server_text.encode("utf-8")).hexdigest(),
+                     "matches_v2": v2_server_matches, "matches_v1": server_text == INVALID,
+                     "matches_disk": server_text.encode("utf-8") == source.read_bytes()}
+                    if isinstance(server_text, str) else
+                    {"unexpected_result_type": type(server_text).__name__}
+                )
+            except TimeoutError:
+                observation = {"timeout_seconds": 6}
+            print("CODESTRIKE_DISCRIMINATING_SERVER_TEXT=" + case + ";v2;" +
+                  json.dumps(observation, separators=(",", ":")), flush=True)
+
         if disk_timing == "before":
-            source.write_bytes(INVALID.encode("utf-8"))
+            source.write_bytes(v3_text.encode("utf-8"))
         client.send("textDocument/didChange", {
             "textDocument": {"uri": source_uri, "version": 3},
-            "contentChanges": [{"text": INVALID}],
+            "contentChanges": [{"text": v3_text}],
         })
         if disk_timing == "after":
-            source.write_bytes(INVALID.encode("utf-8"))
+            source.write_bytes(v3_text.encode("utf-8"))
         if notify_save:
             client.send("textDocument/didSave", {"textDocument": {"uri": source_uri}})
         print("CODESTRIKE_STANDALONE_CHANGE=" + case + ";version:3;diskSha256:" +
@@ -381,24 +405,67 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
             stages["reintroduced_error"] = True
         except TimeoutError:
             print("CODESTRIKE_STANDALONE_TIMEOUT=" + case + ";reintroduced-v3-E0308", flush=True)
-            # Query server text only after the original diagnostic window has expired.
-            client.send("rust-analyzer/viewFileText", {"uri": source_uri},
-                        request_id=4)
+            # Preserve the original post-timeout server-text observation for baseline cases.
+            if not discriminate_edits:
+                client.send("rust-analyzer/viewFileText", {"uri": source_uri},
+                            request_id=4)
+                try:
+                    reply = client.wait_for(lambda msg: is_reply(msg, 4), source_uri, 6,
+                                            "viewFileText response after v3 timeout")
+                    server_text = reply.get("result")
+                    observation = (
+                        {"error": str(reply["error"])[:180]} if "error" in reply else
+                        {"serverSha256": hashlib.sha256(server_text.encode("utf-8")).hexdigest(),
+                         "matches_v3": server_text == v3_text,
+                         "matches_disk": server_text.encode("utf-8") == source.read_bytes()}
+                        if isinstance(server_text, str) else
+                        {"unexpected_result_type": type(server_text).__name__}
+                    )
+                except TimeoutError:
+                    observation = {"timeout_seconds": 6}
+                print("CODESTRIKE_STANDALONE_SERVER_TEXT=" + case + ";" +
+                      json.dumps(observation, separators=(",", ":")), flush=True)
+        if discriminate_edits:
+            client.send("rust-analyzer/viewFileText", {"uri": source_uri}, request_id=6)
             try:
-                reply = client.wait_for(lambda msg: is_reply(msg, 4), source_uri, 6,
-                                        "viewFileText response after v3 timeout")
+                reply = client.wait_for(lambda msg: is_reply(msg, 6), source_uri, 6,
+                                        "viewFileText response at distinct invalid v3")
                 server_text = reply.get("result")
+                v3_server_matches = isinstance(server_text, str) and server_text == v3_text
                 observation = (
                     {"error": str(reply["error"])[:180]} if "error" in reply else
                     {"serverSha256": hashlib.sha256(server_text.encode("utf-8")).hexdigest(),
-                     "matches_v3": server_text == INVALID,
+                     "matches_v3": v3_server_matches, "matches_v1": server_text == INVALID,
                      "matches_disk": server_text.encode("utf-8") == source.read_bytes()}
                     if isinstance(server_text, str) else
                     {"unexpected_result_type": type(server_text).__name__}
                 )
             except TimeoutError:
                 observation = {"timeout_seconds": 6}
-            print("CODESTRIKE_STANDALONE_SERVER_TEXT=" + case + ";" +
+            print("CODESTRIKE_DISCRIMINATING_SERVER_TEXT=" + case + ";v3;" +
+                  json.dumps(observation, separators=(",", ":")), flush=True)
+        if discriminate_edits:
+            # Auxiliary observation only: compare a pull request after the passive
+            # push window. It must not change the original push-diagnostic result.
+            client.send("textDocument/diagnostic", {"textDocument": {"uri": source_uri}},
+                        request_id=7)
+            try:
+                reply = client.wait_for(lambda msg: is_reply(msg, 7), source_uri, 12,
+                                        "pull diagnostic response after passive v3 window")
+                report = reply.get("result")
+                observation = (
+                    {"error": str(reply["error"])[:180]} if "error" in reply else
+                    {"kind": report.get("kind"), "resultId": report.get("resultId"),
+                     "item_count": len(report.get("items", [])),
+                     "codes": [item.get("code") for item in report.get("items", [])[:12]],
+                     "has_e0308": any(item.get("code") == "E0308"
+                                      for item in report.get("items", []))}
+                    if isinstance(report, dict) else
+                    {"unexpected_result_type": type(report).__name__}
+                )
+            except TimeoutError:
+                observation = {"timeout_seconds": 12}
+            print("CODESTRIKE_DISCRIMINATING_PULL=" + case + ";" +
                   json.dumps(observation, separators=(",", ":")), flush=True)
         statuses.append(request_analyzer_status(client, source_uri, 3, "after-v3"))
     finally:
@@ -410,7 +477,10 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
             "notify_save": notify_save,
             "valid_v2_published": valid_v2_published,
             "final_version": 3,
-            "disk_matches_invalid": source.read_bytes() == INVALID.encode("utf-8"),
+            "disk_matches_invalid": source.read_bytes() == v3_text.encode("utf-8"),
+            "discriminate_edits": discriminate_edits,
+            "v2_server_matches": v2_server_matches,
+            "v3_server_matches": v3_server_matches,
             "diagnostics": client.diagnostics[-12:],
             "progress": client.progress[-24:],
             "server_status": client.server_status[-12:],
@@ -424,10 +494,12 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
                                progress_kinds == {"begin", "end"} and
                                len(statuses) == 2 and all(entry.get("loaded") and
                                entry.get("workspace_root_mentions_fixture") for entry in statuses))
-    return all(stages.values()) and (not expect_collisions or synthetic_observability)
+    return (all(stages.values()) and (not expect_collisions or synthetic_observability)
+            and (not discriminate_edits or (v2_server_matches and v3_server_matches)))
 
 
 def fake_server():
+    current_text = None
     while True:
         message = read_frame(sys.stdin.buffer)
         if message is None:
@@ -442,6 +514,7 @@ def fake_server():
             document = message["params"]["textDocument"]
             version = document["version"]
             text = message["params"].get("contentChanges", [{}])[0].get("text", document.get("text", ""))
+            current_text = text
             diagnostics = [{"code": "E0308", "message": "fixture"}] if '"wrong"' in text else []
             write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "$/progress",
                                             "params": {"token": "fixture-progress", "value": {
@@ -463,6 +536,14 @@ def fake_server():
                                             "params": {"token": "fixture-progress", "value": {"kind": "end"}}})
             write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "method": "experimental/serverStatus",
                                             "params": {"health": "ok", "quiescent": True}})
+        elif method == "rust-analyzer/viewFileText":
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "id": message["id"], "result": current_text})
+        elif method == "textDocument/diagnostic":
+            items = ([{"code": "E0308", "message": "fixture"}]
+                     if current_text is not None and '"wrong"' in current_text else [])
+            write_frame(sys.stdout.buffer, {"jsonrpc": "2.0", "id": message["id"],
+                                            "result": {"kind": "full", "resultId": "fixture",
+                                                       "items": items}})
         elif method == "rust-analyzer/analyzerStatus":
             status = ("Workspaces:\nLoaded 1 packages across 1 workspace.\n"
                       f"Workspace root folders: [{os.getcwd()!r}]\nAnalysis:\nFixture ready\n"
@@ -519,6 +600,7 @@ def main():
     parser.add_argument("--check-prior-availability", action="store_true")
     parser.add_argument("--compare-versions", action="store_true")
     parser.add_argument("--compare-sequencing", action="store_true")
+    parser.add_argument("--discriminate-edits", action="store_true")
     args = parser.parse_args()
     if args.fake_server:
         fake_server()
@@ -548,7 +630,9 @@ def main():
             first = run_probe(fake, base, total_seconds=20, expect_collisions=True)
             second = run_probe(fake, base, options=DISABLED_OPTIONS, case="disabled",
                                total_seconds=20, expect_collisions=True)
-            ok = first and second
+            distinct = run_probe(fake, base, case="synthetic_distinct", total_seconds=25,
+                                 discriminate_edits=True, expect_collisions=True)
+            ok = first and second and distinct
         print("CODESTRIKE_STANDALONE_SELFTEST=colliding-request-ids-" + ("passed" if ok else "failed"), flush=True)
         print("CODESTRIKE_STANDALONE_SELFTEST=reused-fixture-path-" + ("passed" if ok else "failed"), flush=True)
         return 0 if ok else 1
@@ -556,6 +640,17 @@ def main():
     if not server:
         raise RuntimeError("Official rust-analyzer component is unavailable on this hosted runner")
     base = Path(tempfile.mkdtemp(prefix="codestrike-standalone-ra-", dir=os.environ.get("RUNNER_TEMP")))
+    if args.discriminate_edits:
+        print("CODESTRIKE_DISCRIMINATING_ANALYZER=" + analyzer_version(server, None), flush=True)
+        try:
+            result = run_probe([server], base, case="distinct_v2_v3", total_seconds=180,
+                               discriminate_edits=True)
+        except Exception as exc:
+            result = False
+            print("CODESTRIKE_DISCRIMINATING_CASE_ERROR=" + str(exc)[:300], flush=True)
+        print("CODESTRIKE_DISCRIMINATING_RESULT=" + json.dumps({"passed": result},
+              separators=(",", ":")), flush=True)
+        return 0 if result else 1
     if args.compare_sequencing:
         print("CODESTRIKE_SEQUENCING_ANALYZER=" + analyzer_version(server, None), flush=True)
         results = {}
