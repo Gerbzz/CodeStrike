@@ -4,12 +4,19 @@ function Write-CodeStrikeRustFixtureTrace {
     # Only the disposable CI fixture is opened by these probes. Emit compact
     # protocol metadata on failure; do not dump document text or full logs.
     $entries = [System.Collections.Generic.Queue[string]]::new()
+    $initializeId = $null
     foreach ($line in ($Output -split "`n")) {
         if ($line -notmatch '(write|read) (?:to|from) lsp: (\{.*\})') { continue }
         $direction = if ($Matches[1] -eq 'write') { 'client' } else { 'server' }
         $json = $Matches[2] -replace '\x1b\[[0-9;]*m', ''
         try { $message = $json | ConvertFrom-Json -ErrorAction Stop } catch { continue }
         $method = [string]$message.method
+        if (-not $method -and $null -ne $initializeId -and [string]$message.id -eq [string]$initializeId) {
+            $provider = $null -ne $message.result.capabilities.diagnosticProvider
+            $entries.Enqueue("$direction initialize-response diagnosticProvider=$provider")
+            if ($entries.Count -gt 60) { $entries.Dequeue() | Out-Null }
+            continue
+        }
         if (-not $method -and $null -ne $message.id -and $json.Contains('"label"')) {
             $entries.Enqueue("$direction response id=$($message.id);readLabel=$($json.Contains('"label":"Read"'))")
             if ($entries.Count -gt 60) { $entries.Dequeue() | Out-Null }
@@ -17,8 +24,11 @@ function Write-CodeStrikeRustFixtureTrace {
         }
         $detail = switch ($method) {
             'initialize' {
+                $initializeId = $message.id
                 $folders = @($message.params.workspaceFolders | ForEach-Object uri) -join ','
-                "root=$($message.params.rootUri);folders=$folders;checkOnSave=$($message.params.initializationOptions.checkOnSave)"
+                $pull = $null -ne $message.params.capabilities.textDocument.diagnostic
+                $push = $null -ne $message.params.capabilities.textDocument.publishDiagnostics
+                "root=$($message.params.rootUri);folders=$folders;checkOnSave=$($message.params.initializationOptions.checkOnSave);clientPull=$pull;clientPush=$push"
             }
             'textDocument/didOpen' {
                 $doc = $message.params.textDocument
@@ -76,11 +86,17 @@ function Write-CodeStrikeRustDocumentTrace {
     $version = $null
     $skipped = 0
     $completionIds = [System.Collections.Generic.HashSet[int]]::new()
+    $initializeId = $null
     foreach ($line in ($Output -split "`n")) {
         if ($line -notmatch '(write|read) (?:to|from) lsp: (\{.*\})') { continue }
         $json = $Matches[2] -replace '\x1b\[[0-9;]*m', ''
         try { $message = $json | ConvertFrom-Json -ErrorAction Stop } catch { continue }
         $method = [string]$message.method
+        if (-not $method -and $null -ne $initializeId -and [string]$message.id -eq [string]$initializeId) {
+            $record = [ordered]@{ method = 'initialize-response'; diagnosticProvider = ($null -ne $message.result.capabilities.diagnosticProvider) }
+            if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
+            continue
+        }
         if ($IncludeCompletions -and -not $method -and $null -ne $message.id -and
             $completionIds.Contains([int]$message.id)) {
             $resultKind = if ($null -ne $message.error) { 'error' } elseif ($null -eq $message.result) { 'null' } else { 'result' }
@@ -90,7 +106,8 @@ function Write-CodeStrikeRustDocumentTrace {
             continue
         }
         if ($method -eq 'initialize') {
-            $record = [ordered]@{ method = $method; rootUri = $message.params.rootUri; options = $message.params.initializationOptions }
+            $initializeId = $message.id
+            $record = [ordered]@{ method = $method; rootUri = $message.params.rootUri; options = $message.params.initializationOptions; clientPull = ($null -ne $message.params.capabilities.textDocument.diagnostic); clientPush = ($null -ne $message.params.capabilities.textDocument.publishDiagnostics) }
             if ($records.Count -lt 100) { $records.Add(($record | ConvertTo-Json -Compress -Depth 8)) } else { $skipped++ }
             continue
         }

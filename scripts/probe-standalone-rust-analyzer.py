@@ -70,11 +70,32 @@ def is_reply(message, request_id):
             and ("result" in message or "error" in message))
 
 
+def classify_main_loop_line(line):
+    """Reduce fixture-only analyzer trace to bounded event kinds without raw log text."""
+    if "updating notifications for" in line:
+        tail = line.split("updating notifications for", 1)[1]
+        return {"kind": "update_diagnostics", "subscriptions": tail.count("FileId(")}
+    if "handle_event" not in line:
+        return None
+    for marker, kind in (
+        ("DidOpenTextDocument", "did_open"),
+        ("DidChangeTextDocument", "did_change"),
+        ("Diagnostics(Syntax", "syntax_result"),
+        ("Diagnostics(Semantic", "semantic_result"),
+        ("FetchBuildData", "build_data_event"),
+        ("LoadProcMacros", "proc_macro_event"),
+    ):
+        if marker in line:
+            return {"kind": kind}
+    return None
+
+
 class Client:
-    def __init__(self, argv, root, deadline, case, toolchain=None):
+    def __init__(self, argv, root, deadline, case, toolchain=None, trace_main_loop=False):
         env = os.environ.copy()
         env["CARGO_NET_OFFLINE"] = "true"
-        env["RA_LOG"] = "rust_analyzer=warn"
+        env["RA_LOG"] = ("rust_analyzer=warn,rust_analyzer::main_loop=trace"
+                         if trace_main_loop else "rust_analyzer=warn")
         if toolchain:
             env["RUSTUP_TOOLCHAIN"] = toolchain
         self.process = subprocess.Popen(
@@ -97,8 +118,12 @@ class Client:
         self.server_status = []
         self.shutdown_reply_seen = False
         self.stderr = bytearray()
+        self.main_loop_events = []
+        self.main_loop_counts = {}
+        self.trace_main_loop = trace_main_loop
         threading.Thread(target=self._read_stdout, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
+        self.stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
+        self.stderr_thread.start()
 
     def _read_stdout(self):
         try:
@@ -113,17 +138,31 @@ class Client:
 
     def _read_stderr(self):
         while True:
-            chunk = self.process.stderr.read(4096)
-            if not chunk:
+            line = self.process.stderr.readline()
+            if not line:
                 return
             if len(self.stderr) < 8192:
-                self.stderr.extend(chunk[: 8192 - len(self.stderr)])
+                self.stderr.extend(line[: 8192 - len(self.stderr)])
+            if self.trace_main_loop:
+                event = classify_main_loop_line(line.decode("utf-8", errors="replace"))
+                if event is not None:
+                    event["t_ms"] = round((time.monotonic() - self.started) * 1000)
+                    kind = event["kind"]
+                    self.main_loop_counts[kind] = self.main_loop_counts.get(kind, 0) + 1
+                    self.main_loop_events.append(event)
+                    self.main_loop_events = self.main_loop_events[-80:]
 
     def send(self, method, params, request_id=None):
         message = {"jsonrpc": "2.0", "method": method, "params": params}
         if request_id is not None:
             message["id"] = request_id
         write_frame(self.process.stdin, message)
+        if method == "initialize":
+            text_caps = params.get("capabilities", {}).get("textDocument", {})
+            print("CODESTRIKE_STANDALONE_CLIENT_CAPABILITIES=" + self.case + ";" +
+                  json.dumps({"pull": "diagnostic" in text_caps,
+                              "push": "publishDiagnostics" in text_caps},
+                             separators=(",", ":")), flush=True)
         if method in ("textDocument/didOpen", "textDocument/didChange", "textDocument/didSave"):
             version = params.get("textDocument", {}).get("version")
             print("CODESTRIKE_STANDALONE_SEND=" + self.case + ";" +
@@ -220,6 +259,7 @@ class Client:
             except (BrokenPipeError, OSError, TimeoutError, subprocess.TimeoutExpired, RuntimeError):
                 self.process.kill()
                 self.process.wait(timeout=3)
+        self.stderr_thread.join(timeout=2)
         for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
             stream.close()
 
@@ -261,8 +301,13 @@ def summarize_analyzer_status(value, root):
 
     relevant = [redact(line.strip())[:150] for line in configuration.splitlines()
                 if re.search(r"cargo|build.?scripts|proc.?macro|check.?on.?save", line, re.I)]
+    effective = {}
+    for key in ("cargo_buildScripts_enable", "procMacro_enable", "diagnostics_enable"):
+        match = re.search(r"\b" + re.escape(key) + r":\s*(true|false)", configuration, re.I)
+        effective[key] = match.group(1).lower() == "true" if match else None
     return {"loaded": loaded.group(0) if loaded else None,
             "workspace_root_mentions_fixture": has_root,
+            "effective": effective,
             "analysis_excerpt": redact(analysis.strip())[:420],
             "version": version.strip()[:120],
             "configuration_relevant": relevant[:20],
@@ -285,13 +330,15 @@ def request_analyzer_status(client, source_uri, request_id, phase):
 
 def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds=155,
               expect_collisions=False, toolchain=None, ready_before_edit=False,
-              disk_timing="before", notify_save=False, discriminate_edits=False):
+              disk_timing="before", notify_save=False, discriminate_edits=False,
+              trace_main_loop=False):
     if disk_timing not in ("before", "after", "none"):
         raise ValueError("Unknown fixture disk timing")
     root, source = make_fixture(base)
     root_uri = root.as_uri() + "/"
     source_uri = source.as_uri()
-    client = Client(argv, root, time.monotonic() + total_seconds, case, toolchain)
+    client = Client(argv, root, time.monotonic() + total_seconds, case, toolchain,
+                    trace_main_loop=trace_main_loop)
     stages = {"initial_error": False, "valid_removes_error": None, "reintroduced_error": False}
     valid_v2_published = False
     v2_server_matches = None
@@ -322,6 +369,10 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
             raise RuntimeError("rust-analyzer rejected initialize: " + str(response["error"])[:300])
         if "result" not in response:
             raise RuntimeError("Initialize did not return a result response")
+        server_caps = response.get("result", {}).get("capabilities", {})
+        print("CODESTRIKE_STANDALONE_SERVER_CAPABILITIES=" + case + ";" +
+              json.dumps({"diagnosticProvider": "diagnosticProvider" in server_caps},
+                         separators=(",", ":")), flush=True)
         client.send("initialized", {})
         client.send("textDocument/didOpen", {
             "textDocument": {"uri": source_uri, "languageId": "rust", "version": 1, "text": INVALID}
@@ -470,6 +521,11 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
         statuses.append(request_analyzer_status(client, source_uri, 3, "after-v3"))
     finally:
         client.close(source_uri)
+        if trace_main_loop:
+            print("CODESTRIKE_STANDALONE_MAIN_LOOP=" + case + ";" +
+                  json.dumps({"counts": client.main_loop_counts,
+                              "events": client.main_loop_events[-60:]},
+                             separators=(",", ":")), flush=True)
         print("CODESTRIKE_STANDALONE_RESULT=" + case + ";" + json.dumps({
             **stages,
             "ready_before_edit": ready_before_edit,
@@ -611,6 +667,10 @@ def main():
     if args.self_test:
         manifest = tomllib.loads('date = "2026-09-03"\n[pkg.rust-analyzer-preview.target.x86_64-pc-windows-msvc]\n'
                                  'available = true\nurl = "https://static.rust-lang.org/dist/fixture.tar.xz"\n')
+        assert classify_main_loop_line("TRACE updating notifications for [FileId(0)]") == {
+            "kind": "update_diagnostics", "subscriptions": 1}
+        assert classify_main_loop_line("DEBUG handle_event event=Task(Diagnostics(Semantic(1, [])))") == {
+            "kind": "semantic_result"}
         assert prior_component_available(manifest)
         manifest["pkg"]["rust-analyzer-preview"]["target"][PRIOR_TARGET]["available"] = False
         assert not prior_component_available(manifest)
@@ -644,7 +704,7 @@ def main():
         print("CODESTRIKE_DISCRIMINATING_ANALYZER=" + analyzer_version(server, None), flush=True)
         try:
             result = run_probe([server], base, case="distinct_v2_v3", total_seconds=180,
-                               discriminate_edits=True)
+                               discriminate_edits=True, trace_main_loop=True)
         except Exception as exc:
             result = False
             print("CODESTRIKE_DISCRIMINATING_CASE_ERROR=" + str(exc)[:300], flush=True)
