@@ -28,8 +28,10 @@ ORIGINAL = """                let fetch_semantic = self.vfs_done
                         || (self.fetch_proc_macros_queue.last_op_result().is_none()
                             && !self.fetch_proc_macros_queue.op_in_progress()));"""
 INSTRUMENTED = """                let guard_vfs_done = self.vfs_done;
-                let guard_document_version = subscriptions.first()
-                    .and_then(|file_id| self.file_version(*file_id)).unwrap_or(-1);
+                let guard_document_version = subscriptions.first().and_then(|file_id| {
+                    let vfs_guard = self.vfs.read();
+                    self.mem_docs.get(vfs_guard.0.file_path(*file_id)).map(|doc| doc.version)
+                }).unwrap_or(-1);
                 let guard_workspace_ready = self.fetch_workspaces_queue.last_op_result().is_some();
                 let guard_build_enabled = self.config.run_build_scripts(None);
                 let guard_build_last_none = self.fetch_build_data_queue.last_op_result().is_none();
@@ -153,6 +155,9 @@ def run_case(module, binary, case, base, flag_path, experimental):
     text_matches = {}
     pulled_e0308 = None
     sent = []
+    passive_push_v3 = None
+    passive_diagnostics = []
+    events_before_pull = []
     try:
         client.send("initialize", {
             "processId": os.getpid(),
@@ -232,6 +237,10 @@ def run_case(module, binary, case, base, flag_path, experimental):
                                 "passive restored-v3 E0308")
             except TimeoutError:
                 pass
+        passive_push_v3 = any(item["version"] == 3 and "E0308" in item["codes"]
+                              for item in client.diagnostics)
+        passive_diagnostics = list(client.diagnostics[-10:])
+        events_before_pull = list(client.main_loop_events)
         client.send("textDocument/diagnostic", {"textDocument": {"uri": uri}}, request_id=7)
         pull_reply = client.wait_for(lambda msg: module.is_reply(msg, 7), uri, 10,
                                      "auxiliary pull diagnostic")
@@ -239,7 +248,7 @@ def run_case(module, binary, case, base, flag_path, experimental):
                              for item in pull_reply.get("result", {}).get("items", []))
     finally:
         client.close(uri)
-    events = client.main_loop_events
+    events = events_before_pull
     guard = [event for event in events if event.get("kind") == "guard"]
     if not guard:
         raise RuntimeError(case + " did not report any resolved guard state")
@@ -248,11 +257,10 @@ def run_case(module, binary, case, base, flag_path, experimental):
         "barrier": barrier,
         "sent": sent,
         "text_matches": text_matches,
-        "push_v3_e0308": any(item["version"] == 3 and "E0308" in item["codes"]
-                              for item in client.diagnostics),
+        "push_v3_e0308": passive_push_v3,
         "pull_v3_e0308": pulled_e0308,
         "diagnostics": [{"t_ms": item["t_ms"], "version": item["version"],
-                         "codes": item["codes"]} for item in client.diagnostics[-10:]],
+                         "codes": item["codes"]} for item in passive_diagnostics],
         "events": [{key: value for key, value in item.items() if key != "subscriptions"}
                    for item in events[-65:]],
     }
