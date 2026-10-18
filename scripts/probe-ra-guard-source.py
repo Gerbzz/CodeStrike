@@ -192,8 +192,15 @@ def run_case(module, binary, case, base, flag_path, experimental):
         while time.monotonic() < barrier_deadline:
             client.send("rust-analyzer/analyzerStatus", {"textDocument": {"uri": uri}},
                         request_id=request_id)
-            status_reply = client.wait_for(lambda msg, rid=request_id: module.is_reply(msg, rid),
-                                           uri, 8, "workspace readiness")
+            try:
+                status_reply = client.wait_for(
+                    lambda msg, rid=request_id: module.is_reply(msg, rid),
+                    uri, 8, "workspace readiness")
+            except TimeoutError:
+                # An unoptimized source build may answer this request after its
+                # startup work. The shared barrier, rather than one RPC, is bounded.
+                request_id += 1
+                continue
             status = module.summarize_analyzer_status(status_reply.get("result"), root)
             quiescent = bool(client.server_status and
                              client.server_status[-1].get("quiescent") is True)
@@ -246,6 +253,16 @@ def run_case(module, binary, case, base, flag_path, experimental):
                                      "auxiliary pull diagnostic")
         pulled_e0308 = any(item.get("code") == "E0308"
                              for item in pull_reply.get("result", {}).get("items", []))
+    except Exception as exc:
+        print("CODESTRIKE_GUARD_EXPERIMENT_ABORT=" + json.dumps({
+            "case": case, "reason": str(exc)[:200],
+            "server_status": client.server_status[-4:],
+            "progress_ends": [item["token"] for item in client.progress
+                              if item["kind"] == "end"][-8:],
+            "guard_events": [item for item in client.main_loop_events
+                             if item.get("kind") == "guard"][-5:],
+        }, separators=(",", ":")), flush=True)
+        raise
     finally:
         client.close(uri)
     events = events_before_pull
@@ -299,9 +316,15 @@ def compare(probe_path, instrumented_binary):
                           flush=True)
                     break
             buffer = io.StringIO()
-            with contextlib.redirect_stdout(buffer):
-                result = run_case(module, instrumented_binary, case,
-                                  scratch / case, flag_path, enabled)
+            try:
+                with contextlib.redirect_stdout(buffer):
+                    result = run_case(module, instrumented_binary, case,
+                                      scratch / case, flag_path, enabled)
+            except Exception:
+                for line in buffer.getvalue().splitlines():
+                    if line.startswith("CODESTRIKE_GUARD_EXPERIMENT_ABORT="):
+                        print(line, flush=True)
+                raise
             results.append(result)
             print("CODESTRIKE_GUARD_EXPERIMENT=" +
                   json.dumps(result, separators=(",", ":")), flush=True)
