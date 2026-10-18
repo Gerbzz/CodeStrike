@@ -271,7 +271,7 @@ def compare(probe_path, instrumented_binary):
     if not instrumented_binary.is_file():
         raise RuntimeError("Instrumented analyzer binary unavailable")
     version = module.analyzer_version(str(instrumented_binary), None)
-    if not version.startswith("rust-analyzer 1.99.0 (b940084d "):
+    if not re.match(r"^rust-analyzer 1\.99\.0 \(b940084d? ", version):
         raise RuntimeError("Built analyzer version differs from the pinned release: " + version)
     print("CODESTRIKE_GUARD_EXPERIMENT_ANALYZER=" + version, flush=True)
     with tempfile.TemporaryDirectory(prefix="codestrike-ra-guard-",
@@ -326,6 +326,10 @@ def self_test():
                                     "original_fetch_semantic", "experiment_requested",
                                     "fetch_semantic") else "true") for key in FIELDS))["fetch_semantic"] is False
     assert classify_guard("WARN unrelated") is None
+    assert re.match(r"^rust-analyzer 1\.99\.0 \(b940084d? ",
+                    "rust-analyzer 1.99.0 (b940084 2026-09-28)")
+    assert re.match(r"^rust-analyzer 1\.99\.0 \(b940084d? ",
+                    "rust-analyzer 1.99.0 (b940084d 2026-09-28)")
     print("CODESTRIKE_GUARD_EXPERIMENT_SELFTEST=passed", flush=True)
 
 
