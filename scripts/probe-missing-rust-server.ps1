@@ -3,7 +3,6 @@ param([Parameter(Mandatory = $true)][string]$VoltPath)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'trace-rust-lsp-fixture.ps1')
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
 if (-not ('CodeStrikeMissingServerWindow' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -141,25 +140,7 @@ try {
         $rect.Right -gt $screen.Right -or $rect.Bottom -gt $screen.Bottom) {
         throw 'CodeStrike window extends beyond the capture screen.'
     }
-    $bitmap = [System.Drawing.Bitmap]::new($width, $height)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    try {
-        $graphics.CopyFromScreen([System.Drawing.Point]::new($rect.Left, $rect.Top), [System.Drawing.Point]::Empty, $bitmap.Size)
-        $stream = [System.IO.MemoryStream]::new()
-        try {
-            $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() |
-                Where-Object MimeType -eq 'image/jpeg' | Select-Object -First 1
-            $parameters = [System.Drawing.Imaging.EncoderParameters]::new(1)
-            $parameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
-                [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
-            $bitmap.Save($stream, $codec, $parameters)
-            if ($stream.Length -gt 350KB) { throw 'Missing-server screenshot exceeded its log bound.' }
-            "CODESTRIKE_MISSING_RA_SCREENSHOT_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
-        } finally { $stream.Dispose() }
-    } finally {
-        $graphics.Dispose()
-        $bitmap.Dispose()
-    }
+    'CODESTRIKE_MISSING_RA_WINDOW=visible-within-capture-screen'
 
     [CodeStrikeMissingServerWindow]::SetCursorPos($rect.Left + [int]($width * 0.4), $rect.Top + [int]($height * 0.2)) | Out-Null
     [CodeStrikeMissingServerWindow]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
@@ -310,25 +291,7 @@ try {
     }
     Start-Sleep -Seconds 2
 
-    $bitmap = [System.Drawing.Bitmap]::new($width, $height)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    try {
-        $graphics.CopyFromScreen([System.Drawing.Point]::new($rect.Left, $rect.Top), [System.Drawing.Point]::Empty, $bitmap.Size)
-        $stream = [System.IO.MemoryStream]::new()
-        try {
-            $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() |
-                Where-Object MimeType -eq 'image/jpeg' | Select-Object -First 1
-            $parameters = [System.Drawing.Imaging.EncoderParameters]::new(1)
-            $parameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
-                [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
-            $bitmap.Save($stream, $codec, $parameters)
-            if ($stream.Length -gt 350KB) { throw 'Recovery screenshot exceeded its log bound.' }
-            "CODESTRIKE_RA_RECOVERY_SCREENSHOT_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
-        } finally { $stream.Dispose() }
-    } finally {
-        $graphics.Dispose()
-        $bitmap.Dispose()
-    }
+    'CODESTRIKE_RA_RECOVERY_COMPLETION_POPUP=read-label-observed-in-protocol'
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     [System.Windows.Forms.SendKeys]::SendWait('^s')
     $completionSaved = $false
