@@ -309,9 +309,10 @@ try {
         # rather than the search query, received the replacement string.
         [System.Windows.Forms.SendKeys]::SendWait($replacement)
         Capture-Candidate 'workspace_replace_ready'
-        # Captures are resized to 960 px from the runner's 1024 px screen;
-        # the button row at capture y=393 is window y=419, not y=400.
-        Click-WindowOffset $editor 330 420
+        # Captures are resized to 960 px from the runner's 1024 px screen.
+        # The new button row appears at capture y=407-420, or window y=434-448.
+        # The three responsive buttons span the panel at this runner width.
+        Click-WindowOffset $editor 330 440
         Start-Sleep -Seconds 2
         Capture-Candidate 'workspace_replace_preview'
         if (-not (Wait-FileBytes $first $firstOriginal) -or -not (Wait-FileBytes $second $secondOriginal)) {
@@ -319,16 +320,16 @@ try {
         }
         $external = $utf8.GetBytes("external $needle" + [char]10)
         [System.IO.File]::WriteAllBytes($second, $external)
-        Click-WindowOffset $editor 430 420
+        Click-WindowOffset $editor 500 440
         Start-Sleep -Seconds 1
         if (-not (Wait-FileBytes $first $firstOriginal) -or -not (Wait-FileBytes $second $external)) {
             throw 'Apply overwrote a file changed after preview.'
         }
         Capture-Candidate 'workspace_replace_apply_conflict'
         [System.IO.File]::WriteAllBytes($second, $secondOriginal)
-        Click-WindowOffset $editor 330 420
+        Click-WindowOffset $editor 330 440
         Start-Sleep -Seconds 1
-        Click-WindowOffset $editor 430 420
+        Click-WindowOffset $editor 500 440
         if (-not (Wait-FileBytes $first $firstApplied) -or -not (Wait-FileBytes $second $secondApplied)) {
             Capture-Candidate 'workspace_replace_apply_failure'
             throw 'Explicit Apply did not replace both supported files while preserving BOM and newlines.'
@@ -341,14 +342,14 @@ try {
         Capture-Candidate 'workspace_replace_applied'
         $newer = $utf8.GetBytes("newer user edit" + [char]10)
         [System.IO.File]::WriteAllBytes($first, $newer)
-        Click-WindowOffset $editor 530 420
+        Click-WindowOffset $editor 650 440
         Start-Sleep -Seconds 1
         if (-not (Wait-FileBytes $first $newer) -or -not (Wait-FileBytes $second $secondApplied)) {
             throw 'Checked Undo overwrote a newer edit.'
         }
         Capture-Candidate 'workspace_replace_undo_conflict'
         [System.IO.File]::WriteAllBytes($first, $firstApplied)
-        Click-WindowOffset $editor 530 420
+        Click-WindowOffset $editor 650 440
         if (-not (Wait-FileBytes $first $firstOriginal) -or -not (Wait-FileBytes $second $secondOriginal)) {
             Capture-Candidate 'workspace_replace_undo_failure'
             throw 'Checked Undo did not restore both original files.'

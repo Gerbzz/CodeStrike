@@ -1,0 +1,50 @@
+name: CodeStrike editor design
+
+on:
+  push:
+    branches: [draft/editor-ux-impeccable]
+    paths:
+      - .github/workflows/editor-design.yml
+      - editor/patches/codestrike-lapce.patch
+      - scripts/probe-editor-acceptance.ps1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codestrike-editor-design-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-editor:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - name: Preserve pinned upstream LF source
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: Prepare CodeStrike candidate
+        shell: pwsh
+        run: .\scripts\prepare-lapce.ps1
+      - name: Compile Windows editor
+        shell: pwsh
+        run: |
+          cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
+          Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
+      - name: Check startup and approved branding
+        shell: pwsh
+        run: .\scripts\probe-windows-editor.ps1 -Startup
+      - name: Check three tabs and session reopen
+        shell: pwsh
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario Tabs
+      - name: Check replacement preview, safety, and undo
+        shell: pwsh
+        run: .\scripts\probe-editor-acceptance.ps1 -Scenario WorkspaceReplace
