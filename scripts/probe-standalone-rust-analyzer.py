@@ -88,6 +88,7 @@ class Client:
         self.root = root
         self.case = case
         self.deadline = deadline
+        self.started = time.monotonic()
         self.inbox = queue.Queue()
         self.diagnostics = []
         self.requests = []
@@ -122,6 +123,12 @@ class Client:
         if request_id is not None:
             message["id"] = request_id
         write_frame(self.process.stdin, message)
+        if method in ("textDocument/didOpen", "textDocument/didChange", "textDocument/didSave"):
+            version = params.get("textDocument", {}).get("version")
+            print("CODESTRIKE_STANDALONE_SEND=" + self.case + ";" +
+                  json.dumps({"t_ms": round((time.monotonic() - self.started) * 1000),
+                              "method": method, "version": version},
+                             separators=(",", ":")), flush=True)
 
     def _handle(self, message, source_uri):
         if "method" in message and "id" in message:
@@ -146,7 +153,16 @@ class Client:
             if uri.casefold() != source_uri.casefold():
                 return
             codes = [item.get("code") for item in params.get("diagnostics", [])]
-            observation = {"version": params.get("version"), "codes": codes}
+            observation = {
+                "t_ms": round((time.monotonic() - self.started) * 1000),
+                "version": params.get("version"),
+                "codes": codes,
+                "details": [
+                    {"code": item.get("code"), "source": str(item.get("source", ""))[:60],
+                     "range": item.get("range"), "message": str(item.get("message", ""))[:180]}
+                    for item in params.get("diagnostics", [])[:8]
+                ],
+            }
             self.diagnostics.append(observation)
             self.diagnostics = self.diagnostics[-64:]
             print("CODESTRIKE_STANDALONE_DIAGNOSTIC=" + self.case + ";" +
@@ -165,7 +181,8 @@ class Client:
                           json.dumps(observation, separators=(",", ":")), flush=True)
         elif message.get("method") == "experimental/serverStatus":
             params = message.get("params", {})
-            observation = {"health": params.get("health"), "quiescent": params.get("quiescent"),
+            observation = {"t_ms": round((time.monotonic() - self.started) * 1000),
+                           "health": params.get("health"), "quiescent": params.get("quiescent"),
                            "message": str(params.get("message", ""))[:140]}
             self.server_status.append(observation)
             self.server_status = self.server_status[-24:]
@@ -266,7 +283,10 @@ def request_analyzer_status(client, source_uri, request_id, phase):
 
 
 def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds=155,
-              expect_collisions=False, toolchain=None):
+              expect_collisions=False, toolchain=None, ready_before_edit=False,
+              disk_timing="before", notify_save=False):
+    if disk_timing not in ("before", "after", "none"):
+        raise ValueError("Unknown fixture disk timing")
     root, source = make_fixture(base)
     root_uri = root.as_uri() + "/"
     source_uri = source.as_uri()
@@ -308,12 +328,24 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
         except TimeoutError:
             print("CODESTRIKE_STANDALONE_TIMEOUT=" + case + ";initial-v1-E0308", flush=True)
         statuses.append(request_analyzer_status(client, source_uri, 2, "after-v1"))
+        if ready_before_edit:
+            if not client.server_status or client.server_status[-1].get("quiescent") is not True:
+                client.wait_for(
+                    lambda msg: msg.get("method") == "experimental/serverStatus"
+                    and msg.get("params", {}).get("quiescent") is True,
+                    source_uri, 35, "first analyzer quiescence before edits")
+            print("CODESTRIKE_STANDALONE_READY=" + case + ";before-edits", flush=True)
 
-        source.write_bytes(VALID.encode("utf-8"))
+        if disk_timing == "before":
+            source.write_bytes(VALID.encode("utf-8"))
         client.send("textDocument/didChange", {
             "textDocument": {"uri": source_uri, "version": 2},
             "contentChanges": [{"text": VALID}],
         })
+        if disk_timing == "after":
+            source.write_bytes(VALID.encode("utf-8"))
+        if notify_save:
+            client.send("textDocument/didSave", {"textDocument": {"uri": source_uri}})
         print("CODESTRIKE_STANDALONE_CHANGE=" + case + ";version:2;diskSha256:" +
               hashlib.sha256(source.read_bytes()).hexdigest(), flush=True)
         if stages["initial_error"]:
@@ -332,11 +364,16 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
                 print("CODESTRIKE_STANDALONE_VALID=" + case +
                       ";unobserved-after-empty-v1;removal-inconclusive", flush=True)
 
-        source.write_bytes(INVALID.encode("utf-8"))
+        if disk_timing == "before":
+            source.write_bytes(INVALID.encode("utf-8"))
         client.send("textDocument/didChange", {
             "textDocument": {"uri": source_uri, "version": 3},
             "contentChanges": [{"text": INVALID}],
         })
+        if disk_timing == "after":
+            source.write_bytes(INVALID.encode("utf-8"))
+        if notify_save:
+            client.send("textDocument/didSave", {"textDocument": {"uri": source_uri}})
         print("CODESTRIKE_STANDALONE_CHANGE=" + case + ";version:3;diskSha256:" +
               hashlib.sha256(source.read_bytes()).hexdigest(), flush=True)
         try:
@@ -344,11 +381,33 @@ def run_probe(argv, base, options=DEFAULT_OPTIONS, case="default", total_seconds
             stages["reintroduced_error"] = True
         except TimeoutError:
             print("CODESTRIKE_STANDALONE_TIMEOUT=" + case + ";reintroduced-v3-E0308", flush=True)
+            # Query server text only after the original diagnostic window has expired.
+            client.send("rust-analyzer/viewFileText", {"textDocument": {"uri": source_uri}},
+                        request_id=4)
+            try:
+                reply = client.wait_for(lambda msg: is_reply(msg, 4), source_uri, 6,
+                                        "viewFileText response after v3 timeout")
+                server_text = reply.get("result")
+                observation = (
+                    {"error": str(reply["error"])[:180]} if "error" in reply else
+                    {"serverSha256": hashlib.sha256(server_text.encode("utf-8")).hexdigest(),
+                     "matches_v3": server_text == INVALID,
+                     "matches_disk": server_text.encode("utf-8") == source.read_bytes()}
+                    if isinstance(server_text, str) else
+                    {"unexpected_result_type": type(server_text).__name__}
+                )
+            except TimeoutError:
+                observation = {"timeout_seconds": 6}
+            print("CODESTRIKE_STANDALONE_SERVER_TEXT=" + case + ";" +
+                  json.dumps(observation, separators=(",", ":")), flush=True)
         statuses.append(request_analyzer_status(client, source_uri, 3, "after-v3"))
     finally:
         client.close(source_uri)
         print("CODESTRIKE_STANDALONE_RESULT=" + case + ";" + json.dumps({
             **stages,
+            "ready_before_edit": ready_before_edit,
+            "disk_timing": disk_timing,
+            "notify_save": notify_save,
             "valid_v2_published": valid_v2_published,
             "final_version": 3,
             "disk_matches_invalid": source.read_bytes() == INVALID.encode("utf-8"),
@@ -459,6 +518,7 @@ def main():
     parser.add_argument("--fake-server", action="store_true")
     parser.add_argument("--check-prior-availability", action="store_true")
     parser.add_argument("--compare-versions", action="store_true")
+    parser.add_argument("--compare-sequencing", action="store_true")
     args = parser.parse_args()
     if args.fake_server:
         fake_server()
@@ -496,6 +556,27 @@ def main():
     if not server:
         raise RuntimeError("Official rust-analyzer component is unavailable on this hosted runner")
     base = Path(tempfile.mkdtemp(prefix="codestrike-standalone-ra-", dir=os.environ.get("RUNNER_TEMP")))
+    if args.compare_sequencing:
+        print("CODESTRIKE_SEQUENCING_ANALYZER=" + analyzer_version(server, None), flush=True)
+        results = {}
+        for case, ready, timing, save in (
+            ("original_sequence", False, "before", False),
+            ("settled_sequence", True, "before", False),
+            ("settled_save_control", True, "after", True),
+        ):
+            case_base = base / case
+            case_base.mkdir()
+            try:
+                results[case] = run_probe([server], case_base, case=case,
+                                          ready_before_edit=ready,
+                                          disk_timing=timing, notify_save=save,
+                                          total_seconds=155)
+            except Exception as exc:
+                results[case] = False
+                print("CODESTRIKE_STANDALONE_CASE_ERROR=" + case + ";" + str(exc)[:300], flush=True)
+        print("CODESTRIKE_SEQUENCING_COMPARISON=" +
+              json.dumps(results, separators=(",", ":")), flush=True)
+        return 0 if all(results.values()) else 1
     if args.compare_versions:
         versions = {"current": analyzer_version(server, None),
                     "prior": analyzer_version(server, PRIOR_TOOLCHAIN)}
