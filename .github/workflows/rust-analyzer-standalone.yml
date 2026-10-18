@@ -42,3 +42,31 @@ jobs:
         shell: pwsh
         timeout-minutes: 12
         run: python scripts/probe-standalone-rust-analyzer.py --compare-sequencing
+
+  discriminating-rust-analyzer:
+    runs-on: windows-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/probe-standalone-rust-analyzer.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Match official rust-analyzer version
+        shell: pwsh
+        run: |
+          $rustc = rustc --version
+          if ($rustc -notmatch '^rustc 1\.99\.0 \(b940084d7 ') {
+            throw "Hosted toolchain differs from GUI run 38975570543: $rustc"
+          }
+          rustup component add rust-analyzer
+          $analyzer = rust-analyzer --version
+          if ($analyzer -notmatch '^rust-analyzer 1\.99\.0 \(b940084d ') {
+            throw "rust-analyzer differs from GUI run 38975570543: $analyzer"
+          }
+          $analyzer
+          python --version
+      - name: Observe valid v2 and byte-distinct invalid v3 server text
+        shell: pwsh
+        timeout-minutes: 5
+        run: python scripts/probe-standalone-rust-analyzer.py --discriminate-edits
