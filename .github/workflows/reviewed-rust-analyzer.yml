@@ -1,0 +1,267 @@
+name: CodeStrike reviewed analyzer candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/reviewed-rust-analyzer.yml
+      - third_party/rust-analyzer/**
+      - scripts/analyzer/**
+      - THIRD_PARTY.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codestrike-reviewed-analyzer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: '1.97.1'
+  CARGO_BUILD_JOBS: '2'
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CFG_RELEASE: '1.99.0'
+  CFG_RELEASE_CHANNEL: stable
+
+jobs:
+  analyzer-source:
+    runs-on: windows-2025
+    timeout-minutes: 75
+    steps:
+      - name: Keep pinned source line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: rust-lang/rust-analyzer
+          ref: a0b58c0fe3e924302c1155e88c4a9454f86280c2
+          path: pinned-analyzer
+          persist-credentials: false
+      - name: Install and verify declared Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt,rust-src --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
+          .\scripts\analyzer\test-rust-toolchain-guard.ps1
+          . .\scripts\analyzer\rust-toolchain-guard.ps1
+          $compiler = @(& rustc +1.97.1 -vV)
+          $compilerExit = $LASTEXITCODE
+          Assert-RustcCommitHash -CompilerOutput $compiler -ExitCode $compilerExit -ExpectedCommit '8bab26f4f68e0e26f0bb7960be334d5b520ea452'
+          python --version
+          if ($LASTEXITCODE -ne 0) { throw 'Python is unavailable' }
+      - name: Apply the reviewed source pin
+        shell: pwsh
+        run: .\scripts\analyzer\prepare-reviewed-source.ps1 -SourcePath pinned-analyzer
+      - name: Build and check the production analyzer
+        shell: pwsh
+        timeout-minutes: 30
+        run: |
+          $before = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+          if ($before -lt 20) { throw "Only $before GiB free before analyzer build" }
+          $env:CARGO_TARGET_DIR = Join-Path $env:RUNNER_TEMP 'analyzer-target'
+          cargo +1.97.1 fetch --locked --manifest-path pinned-analyzer/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo fetch failed' }
+          cargo +1.97.1 build --locked --offline --manifest-path pinned-analyzer/Cargo.toml -p rust-analyzer --bin rust-analyzer
+          if ($LASTEXITCODE -ne 0) { throw 'Analyzer build failed' }
+          cargo +1.97.1 test --locked --offline --manifest-path pinned-analyzer/Cargo.toml -p rust-analyzer --lib
+          if ($LASTEXITCODE -ne 0) { throw 'Analyzer library tests failed' }
+          cargo +1.97.1 fmt --manifest-path pinned-analyzer/Cargo.toml --all -- --check
+          if ($LASTEXITCODE -ne 0) { throw 'Analyzer formatting failed' }
+          cargo +1.97.1 clippy --locked --offline --manifest-path pinned-analyzer/Cargo.toml -p rust-analyzer --all-targets -- --cap-lints warn
+          if ($LASTEXITCODE -ne 0) { throw 'Analyzer Clippy check failed' }
+          $analyzer = Join-Path $env:CARGO_TARGET_DIR 'debug/rust-analyzer.exe'
+          "CI_ANALYZER_SHA256=$((Get-FileHash $analyzer -Algorithm SHA256).Hash)"
+          $after = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+          if ($after -lt 8) { throw "Only $after GiB free after analyzer build" }
+      - name: Test actual rustc and separately synthetic quick-fix lifecycles
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $analyzer = Join-Path $env:RUNNER_TEMP 'analyzer-target/debug/rust-analyzer.exe'
+          $sysroot = & rustc +1.97.1 --print sysroot
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve pinned Rust sysroot' }
+          $env:RUST_SRC_PATH = Join-Path $sysroot 'lib/rustlib/src/rust/library'
+          if (-not (Test-Path (Join-Path $env:RUST_SRC_PATH 'core/src/lib.rs'))) { throw 'Pinned rust-src missing' }
+          python scripts/analyzer/quickfix_gates.py genuine $analyzer (Join-Path $env:RUNNER_TEMP 'qf-genuine')
+          if ($LASTEXITCODE -ne 0) { throw 'Genuine rustc quick-fix gate failed' }
+          python scripts/analyzer/quickfix_gates.py synthetic $analyzer (Join-Path $env:RUNNER_TEMP 'qf-synthetic')
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic cross-file cache gate failed' }
+      - name: Run nine normal LSP scenarios and pull or disabled capability gates
+        shell: pwsh
+        timeout-minutes: 30
+        run: |
+          $analyzer = Join-Path $env:RUNNER_TEMP 'analyzer-target/debug/rust-analyzer.exe'
+          $patch = 'third_party/rust-analyzer/reviewed-v12.patch'
+          $sysroot = & rustc +1.97.1 --print sysroot
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve pinned Rust sysroot' }
+          $env:RUST_SRC_PATH = Join-Path $sysroot 'lib/rustlib/src/rust/library'
+          if (-not (Test-Path (Join-Path $env:RUST_SRC_PATH 'core/src/lib.rs'))) { throw 'Pinned rust-src missing' }
+          $env:CARGO_NET_OFFLINE = 'true'
+          $logs = Join-Path $env:RUNNER_TEMP 'normal-lsp-matrix'
+          New-Item -ItemType Directory -Path $logs -Force | Out-Null
+          $scenarios = @('final_invalid_priming', 'final_valid_priming',
+                         'alternating_final_valid', 'alternating_final_invalid',
+                         'multi_file', 'workspace_reload', 'new_file_reload',
+                         'enable_build', 'enable_proc')
+          foreach ($scenario in $scenarios) {
+            $fixture = Join-Path $logs "fixture-$scenario"
+            $log = Join-Path $logs "matrix-$scenario.log"
+            python scripts/analyzer/matrix/v7-final-state-matrix.py $scenario $analyzer $fixture --patch $patch --hold-seconds 15 *> $log
+            if ($LASTEXITCODE -ne 0) {
+              Get-Content -Tail 3 -LiteralPath $log
+              throw "Normal LSP scenario failed: $scenario"
+            }
+          }
+          python scripts/analyzer/matrix/v12-publication-audit.py $analyzer $patch $logs
+          if ($LASTEXITCODE -ne 0) { throw 'Per-publication matrix audit failed' }
+          foreach ($mode in @('pull', 'disabled_push', 'disabled_pull')) {
+            $fixture = Join-Path $logs "fixture-$mode"
+            $log = Join-Path $logs "capability-$mode.log"
+            python scripts/analyzer/matrix/v6-capability-gates.py $mode $analyzer $patch $fixture *> $log
+            if ($LASTEXITCODE -ne 0) {
+              Get-Content -Tail 3 -LiteralPath $log
+              throw "Diagnostic capability gate failed: $mode"
+            }
+          }
+
+  acknowledged-races:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Keep pinned source line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: rust-lang/rust-analyzer
+          ref: a0b58c0fe3e924302c1155e88c4a9454f86280c2
+          path: pinned-analyzer
+          persist-credentials: false
+      - name: Install and verify declared Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rust-src --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
+          .\scripts\analyzer\test-rust-toolchain-guard.ps1
+          . .\scripts\analyzer\rust-toolchain-guard.ps1
+          $compiler = @(& rustc +1.97.1 -vV)
+          $compilerExit = $LASTEXITCODE
+          Assert-RustcCommitHash -CompilerOutput $compiler -ExitCode $compilerExit -ExpectedCommit '8bab26f4f68e0e26f0bb7960be334d5b520ea452'
+      - name: Apply production patch and isolated test hooks
+        shell: pwsh
+        run: .\scripts\analyzer\prepare-reviewed-source.ps1 -SourcePath pinned-analyzer -WithTestHooks
+      - name: Build test-only analyzer and run acknowledged races
+        shell: pwsh
+        timeout-minutes: 38
+        run: |
+          python scripts/analyzer/test-race-publication-audit.py
+          if ($LASTEXITCODE -ne 0) { throw 'Race publication audit regression test failed' }
+          $before = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+          if ($before -lt 20) { throw "Only $before GiB free before test-hook build" }
+          $env:CARGO_TARGET_DIR = Join-Path $env:RUNNER_TEMP 'race-target'
+          cargo +1.97.1 fetch --locked --manifest-path pinned-analyzer/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo fetch failed' }
+          cargo +1.97.1 build --locked --offline --manifest-path pinned-analyzer/Cargo.toml -p rust-analyzer --bin rust-analyzer
+          if ($LASTEXITCODE -ne 0) { throw 'Test-hook analyzer build failed' }
+          $sysroot = & rustc +1.97.1 --print sysroot
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve pinned Rust sysroot' }
+          $env:RUST_SRC_PATH = Join-Path $sysroot 'lib/rustlib/src/rust/library'
+          if (-not (Test-Path (Join-Path $env:RUST_SRC_PATH 'core/src/lib.rs'))) { throw 'Pinned rust-src missing' }
+          $analyzer = Join-Path $env:CARGO_TARGET_DIR 'debug/rust-analyzer.exe'
+          "CI_TEST_HOOK_ANALYZER_SHA256=$((Get-FileHash $analyzer -Algorithm SHA256).Hash)"
+          python scripts/analyzer/race_gates.py syntax $analyzer (Join-Path $env:RUNNER_TEMP 'race-syntax')
+          if ($LASTEXITCODE -ne 0) { throw 'Syntax cancellation gate failed' }
+          python scripts/analyzer/race_gates.py semantic $analyzer (Join-Path $env:RUNNER_TEMP 'race-semantic')
+          if ($LASTEXITCODE -ne 0) { throw 'Semantic cancellation gate failed' }
+          python scripts/analyzer/race_gates.py semantic $analyzer (Join-Path $env:RUNNER_TEMP 'race-six-cancellations') --count 6
+          if ($LASTEXITCODE -ne 0) { throw 'Backoff gate failed' }
+          python scripts/analyzer/race_gates.py cancel-save $analyzer (Join-Path $env:RUNNER_TEMP 'race-cancel-save')
+          if ($LASTEXITCODE -ne 0) { throw 'Cancel/save ordering gate failed' }
+          python scripts/analyzer/race_gates.py reverse-save $analyzer (Join-Path $env:RUNNER_TEMP 'race-reverse-save')
+          if ($LASTEXITCODE -ne 0) { throw 'Reverse save ordering gate failed' }
+          $after = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+          if ($after -lt 8) { throw "Only $after GiB free after race gates" }
+
+  current-main-native-gui:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - name: Keep pinned source line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: rust-lang/rust-analyzer
+          ref: a0b58c0fe3e924302c1155e88c4a9454f86280c2
+          path: pinned-analyzer
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: lapce/lapce-rust
+          ref: ea1c8da7df318a253edf07bd2862d236951b6d80
+          path: rust-volt-source
+          persist-credentials: false
+      - name: Install declared Rust toolchain and WASI target
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rust-src --target wasm32-wasip1 --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
+          .\scripts\analyzer\test-rust-toolchain-guard.ps1
+          . .\scripts\analyzer\rust-toolchain-guard.ps1
+          $compiler = @(& rustc +1.97.1 -vV)
+          $compilerExit = $LASTEXITCODE
+          Assert-RustcCommitHash -CompilerOutput $compiler -ExitCode $compilerExit -ExpectedCommit '8bab26f4f68e0e26f0bb7960be334d5b520ea452'
+          $voltHead = git -C rust-volt-source rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $voltHead.Trim() -ne 'ea1c8da7df318a253edf07bd2862d236951b6d80') { throw 'Volt source pin changed' }
+          "CI_CODESTRIKE_HEAD=$((git rev-parse HEAD).Trim())"
+      - name: Build the reviewed analyzer in this runner
+        shell: pwsh
+        timeout-minutes: 25
+        run: |
+          .\scripts\analyzer\prepare-reviewed-source.ps1 -SourcePath pinned-analyzer
+          $env:CARGO_TARGET_DIR = Join-Path $env:RUNNER_TEMP 'gui-analyzer-target'
+          cargo +1.97.1 fetch --locked --manifest-path pinned-analyzer/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo fetch failed' }
+          cargo +1.97.1 build --locked --offline --manifest-path pinned-analyzer/Cargo.toml -p rust-analyzer --bin rust-analyzer
+          if ($LASTEXITCODE -ne 0) { throw 'GUI analyzer build failed' }
+          $analyzer = Join-Path $env:CARGO_TARGET_DIR 'debug/rust-analyzer.exe'
+          "CI_GUI_ANALYZER_SHA256=$((Get-FileHash $analyzer -Algorithm SHA256).Hash)"
+      - name: Build pinned Rust Volt and fresh current-main CodeStrike app
+        shell: pwsh
+        timeout-minutes: 38
+        run: |
+          cargo +1.97.1 build --manifest-path rust-volt-source/Cargo.toml --locked --release --target wasm32-wasip1 --target-dir (Join-Path $env:RUNNER_TEMP 'volt-target')
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Volt build failed' }
+          $volt = Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt'
+          New-Item -ItemType Directory -Path $volt -Force | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'volt-target/wasm32-wasip1/release/lapce-rust.wasm') (Join-Path $volt 'lapce-rust.wasm')
+          Copy-Item rust-volt-source/volt.toml, rust-volt-source/LICENSE, rust-volt-source/rust-logo.png $volt
+          .\scripts\prepare-lapce.ps1
+          cargo +1.97.1 build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
+          if ($LASTEXITCODE -ne 0) { throw 'Current-main CodeStrike app build failed' }
+          Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
+          "CI_CODESTRIKE_APP_SHA256=$((Get-FileHash editor/lapce/target/debug/CodeStrike.exe -Algorithm SHA256).Hash)"
+          $free = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+          if ($free -lt 8) { throw "Only $free GiB free after GUI build" }
+      - name: Verify native edit, save, diagnostics, completion and recovery
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $volt = Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt'
+          $analyzer = Join-Path $env:RUNNER_TEMP 'gui-analyzer-target/debug/rust-analyzer.exe'
+          .\scripts\analyzer\probe-native-strict.ps1 -VoltPath $volt -AnalyzerPath $analyzer
+          if (-not $?) { throw 'Strict native Rust probe failed' }
+          .\scripts\analyzer\probe-native-recovery.ps1 -VoltPath $volt -AnalyzerPath $analyzer
+          if (-not $?) { throw 'Native missing-server recovery failed' }
