@@ -544,18 +544,18 @@ index 557bf28..0d5b2c8 100644
 +    }
 +
 diff --git a/lapce-app/src/lib.rs b/lapce-app/src/lib.rs
-index 43a55ce..1c62f06 100644
+index 43a55ce..2efbecc 100644
 --- a/lapce-app/src/lib.rs
 +++ b/lapce-app/src/lib.rs
 @@ -1,0 +2,8 @@
 +#[path = "../../../../src/agent_adapter.rs"]
 +pub mod agent_adapter;
++#[path = "../../../../src/agent_panel.rs"]
++pub mod agent_panel;
 +#[path = "../../../../src/agent_review.rs"]
 +pub mod agent_review;
 +#[path = "../../../../src/agent_session.rs"]
 +pub mod agent_session;
-+#[path = "../../../../src/agent_panel.rs"]
-+pub mod agent_panel;
 diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
 index fb85013..c7ac84f 100644
 --- a/lapce-app/src/palette.rs
@@ -829,16 +829,22 @@ index 0000000..5d3d310
 +    .on_cleanup(move || active.set(false))
 +}
 diff --git a/lapce-app/src/panel/data.rs b/lapce-app/src/panel/data.rs
-index b18f06d..82eebaa 100644
+index b18f06d..40545f4 100644
 --- a/lapce-app/src/panel/data.rs
 +++ b/lapce-app/src/panel/data.rs
 @@ -47 +47 @@ pub fn default_panel_order() -> PanelOrder {
 -        im::vector![PanelKind::DocumentSymbol,],
 +        im::vector![PanelKind::DocumentSymbol, PanelKind::Agent],
-@@ -52,0 +53,7 @@ pub fn default_panel_order() -> PanelOrder {
+@@ -52,0 +53,13 @@ pub fn default_panel_order() -> PanelOrder {
 +pub fn ensure_agent_panel(mut order: PanelOrder) -> PanelOrder {
-+    if !order.values().any(|panels| panels.contains(&PanelKind::Agent)) {
-+        order.entry(PanelPosition::RightTop).or_default().push_back(PanelKind::Agent);
++    if !order
++        .values()
++        .any(|panels| panels.contains(&PanelKind::Agent))
++    {
++        order
++            .entry(PanelPosition::RightTop)
++            .or_default()
++            .push_back(PanelKind::Agent);
 +    }
 +    order
 +}
@@ -1085,7 +1091,7 @@ index 5933603..b6cdf3d 100644
 -                    .entry(MenuItem::new("About Lapce").action(move || {
 +                    .entry(MenuItem::new("About CodeStrike").action(move || {
 diff --git a/lapce-app/src/window_tab.rs b/lapce-app/src/window_tab.rs
-index fc547d1..2c35bd6 100644
+index fc547d1..7d9cecf 100644
 --- a/lapce-app/src/window_tab.rs
 +++ b/lapce-app/src/window_tab.rs
 @@ -80,0 +81 @@
@@ -1095,19 +1101,47 @@ index fc547d1..2c35bd6 100644
 +        data::{PanelData, PanelSection, default_panel_order, ensure_agent_panel},
 @@ -176,0 +178 @@ pub struct WindowTabData {
 +    pub agent: AgentPanelData,
-@@ -456,3 +457,0 @@ pub fn new(
+@@ -455,18 +457,14 @@ pub fn new(
+-            .map(|i| {
 -                let panel_order = db
 -                    .get_panel_orders()
 -                    .unwrap_or_else(|_| default_panel_order());
-@@ -460 +459 @@ pub fn new(
+-                PanelData {
 -                    panels: cx.create_rw_signal(panel_order),
-+                    panels: cx.create_rw_signal(ensure_agent_panel(i.panel.panels.clone())),
-@@ -475 +474 @@ pub fn new(
+-                    styles: cx.create_rw_signal(i.panel.styles.clone()),
+-                    size: cx.create_rw_signal(i.panel.size.clone()),
+-                    available_size: panel_available_size,
+-                    sections: cx.create_rw_signal(
+-                        i.panel
+-                            .sections
+-                            .iter()
+-                            .map(|(key, value)| (*key, cx.create_rw_signal(*value)))
+-                            .collect(),
+-                    ),
+-                    common: common.clone(),
+-                }
++            .map(|i| PanelData {
++                panels: cx
++                    .create_rw_signal(ensure_agent_panel(i.panel.panels.clone())),
++                styles: cx.create_rw_signal(i.panel.styles.clone()),
++                size: cx.create_rw_signal(i.panel.size.clone()),
++                available_size: panel_available_size,
++                sections: cx.create_rw_signal(
++                    i.panel
++                        .sections
++                        .iter()
++                        .map(|(key, value)| (*key, cx.create_rw_signal(*value)))
++                        .collect(),
++                ),
++                common: common.clone(),
+@@ -475,3 +473,4 @@ pub fn new(
 -                let panel_order = db
-+                let panel_order = ensure_agent_panel(db
-@@ -477 +476 @@ pub fn new(
+-                    .get_panel_orders()
 -                    .unwrap_or_else(|_| default_panel_order());
-+                    .unwrap_or_else(|_| default_panel_order()));
++                let panel_order = ensure_agent_panel(
++                    db.get_panel_orders()
++                        .unwrap_or_else(|_| default_panel_order()),
++                );
 @@ -513,0 +513 @@ pub fn new(
 +        let agent = AgentPanelData::new(cx, main_split.clone(), workspace.clone());
 @@ -553,0 +554 @@ pub fn new(
@@ -2160,16 +2194,15 @@ index 62067e1..4d150fb 100644
 @@ -4,0 +5 @@
 +pub mod codestrike_replace;
 diff --git a/lapce-proxy/src/plugin/psp.rs b/lapce-proxy/src/plugin/psp.rs
-index 331fbe5..ed30ae9 100644
+index 331fbe5..2e231ec 100644
 --- a/lapce-proxy/src/plugin/psp.rs
 +++ b/lapce-proxy/src/plugin/psp.rs
 @@ -1114,0 +1115,2 @@ pub fn handle_notification(
 +                let core_rpc = catalog_rpc.core_rpc.clone();
 +                let failure_title = format!("Language server: {volt_display_name}");
-@@ -1129 +1131,10 @@ pub fn handle_notification(
+@@ -1129 +1131,9 @@ pub fn handle_notification(
 -                        tracing::error!("{:?}", err);
-+                        let failure_message =
-+                            "Local language server unavailable. Check its path in workspace settings.";
++                        let failure_message = "Local language server unavailable. Check its path in workspace settings.";
 +                        tracing::error!("{failure_message}: {err:?}");
 +                        core_rpc.show_message(
 +                            failure_title,

@@ -121,14 +121,19 @@ impl ReviewedFileChange {
     }
 
     pub fn validate_approval(&self, params: &Value) -> Result<(), ReviewError> {
-        if params.get("itemId").and_then(Value::as_str) != Some(self.item_id.as_str()) {
+        if params.get("itemId").and_then(Value::as_str)
+            != Some(self.item_id.as_str())
+        {
             return Err(ReviewError::WrongItem);
         }
         for change in &self.changes {
-            if fs::canonicalize(&change.requested).ok().as_ref() != Some(&change.path) {
+            if fs::canonicalize(&change.requested).ok().as_ref()
+                != Some(&change.path)
+            {
                 return Err(ReviewError::StaleFile);
             }
-            let bytes = fs::read(&change.path).map_err(|_| ReviewError::StaleFile)?;
+            let bytes =
+                fs::read(&change.path).map_err(|_| ReviewError::StaleFile)?;
             if bytes.len() as u64 > MAX_FILE_BYTES
                 || Sha256::digest(bytes).as_slice() != change.fingerprint
             {

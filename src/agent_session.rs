@@ -2,7 +2,8 @@
 //! unless the host explicitly starts a configured executable and sends a turn.
 
 use crate::agent_adapter::{
-    AdapterEffect, AgentEvent, ApprovalDecision, LocalCodexAdapter, MAX_WIRE_LINE_BYTES,
+    AdapterEffect, AgentEvent, ApprovalDecision, LocalCodexAdapter,
+    MAX_WIRE_LINE_BYTES,
 };
 use serde_json::Value;
 use std::ffi::OsString;
@@ -153,15 +154,26 @@ impl LocalAgentSession {
                             match effect {
                                 AdapterEffect::Send(frame) => {
                                     if let Err(error) = self.write(&frame) {
-                                        self.disconnect(error.to_string(), &mut events);
+                                        self.disconnect(
+                                            error.to_string(),
+                                            &mut events,
+                                        );
                                     }
                                 }
                                 AdapterEffect::Show(AgentEvent::Ready) => {
-                                    events.push(SessionEvent::Agent(AgentEvent::Ready));
-                                    match self.adapter.start_thread(&self.project, &self.model) {
+                                    events.push(SessionEvent::Agent(
+                                        AgentEvent::Ready,
+                                    ));
+                                    match self
+                                        .adapter
+                                        .start_thread(&self.project, &self.model)
+                                    {
                                         Ok(frame) => {
                                             if let Err(error) = self.write(&frame) {
-                                                self.disconnect(error.to_string(), &mut events);
+                                                self.disconnect(
+                                                    error.to_string(),
+                                                    &mut events,
+                                                );
                                             }
                                         }
                                         Err(error) => self.disconnect(
@@ -176,9 +188,10 @@ impl LocalAgentSession {
                             }
                         }
                     }
-                    Err(error) => {
-                        self.disconnect(format!("app-server protocol: {error:?}"), &mut events)
-                    }
+                    Err(error) => self.disconnect(
+                        format!("app-server protocol: {error:?}"),
+                        &mut events,
+                    ),
                 },
                 Ok(Incoming::Closed) => {
                     self.disconnect("app-server closed stdout".into(), &mut events)
@@ -263,7 +276,10 @@ fn read_line_bounded(reader: &mut impl BufRead) -> io::Result<Option<String>> {
         reader.consume(count);
         if bytes.last() == Some(&b'\n') {
             return String::from_utf8(bytes).map(Some).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "app-server frame is not UTF-8")
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "app-server frame is not UTF-8",
+                )
             });
         }
     }

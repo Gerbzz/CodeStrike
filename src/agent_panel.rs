@@ -65,11 +65,17 @@ impl LocalAgentPanel {
         }
     }
 
-    pub fn start(&mut self, executable: &Path, args: &[OsString], model: &str) -> io::Result<()> {
+    pub fn start(
+        &mut self,
+        executable: &Path,
+        args: &[OsString],
+        model: &str,
+    ) -> io::Result<()> {
         self.disconnect();
         self.transcript.clear();
         self.diff.clear();
-        let session = LocalAgentSession::spawn(executable, args, &self.workspace, model)?;
+        let session =
+            LocalAgentSession::spawn(executable, args, &self.workspace, model)?;
         self.session = Some(session);
         self.status = "Connecting to local agent".into();
         Ok(())
@@ -93,7 +99,10 @@ impl LocalAgentPanel {
         self.session
             .as_mut()
             .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotConnected, "start a local agent first")
+                io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "start a local agent first",
+                )
             })?
             .send_prompt(prompt)?;
         self.status = "Agent working".into();
@@ -104,25 +113,33 @@ impl LocalAgentPanel {
         self.session
             .as_mut()
             .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotConnected, "start a local agent first")
+                io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "start a local agent first",
+                )
             })?
             .interrupt_turn()?;
         self.status = "Stopping current turn".into();
         Ok(())
     }
 
-    pub fn decide(&mut self, request_id: &Value, decision: ApprovalDecision) -> Result<(), String> {
+    pub fn decide(
+        &mut self,
+        request_id: &Value,
+        decision: ApprovalDecision,
+    ) -> Result<(), String> {
         let index = self
             .pending
             .iter()
             .position(|pending| &pending.request_id == request_id)
-            .ok_or_else(|| "Approval no longer belongs to this session".to_owned())?;
+            .ok_or_else(|| {
+                "Approval no longer belongs to this session".to_owned()
+            })?;
         let pending = &self.pending[index];
         if decision == ApprovalDecision::Accept {
-            let review = pending
-                .review
-                .as_ref()
-                .ok_or_else(|| "This request has no reviewable workspace edit".to_owned())?;
+            let review = pending.review.as_ref().ok_or_else(|| {
+                "This request has no reviewable workspace edit".to_owned()
+            })?;
             review
                 .validate_approval(&pending.params)
                 .map_err(|error| format!("Edit review: {error:?}"))?;
@@ -184,7 +201,9 @@ impl LocalAgentPanel {
             }
             SessionEvent::Agent(event) => match event {
                 AgentEvent::Ready => self.status = "Starting local thread".into(),
-                AgentEvent::ThreadStarted(_) => self.status = "Local agent ready".into(),
+                AgentEvent::ThreadStarted(_) => {
+                    self.status = "Local agent ready".into()
+                }
                 AgentEvent::TurnStarted(id) => {
                     self.active_turn = Some(id);
                     self.proposed.clear();
@@ -201,14 +220,20 @@ impl LocalAgentPanel {
                 }
                 AgentEvent::FileChange(item) => {
                     if let Some(id) = item.get("id").and_then(Value::as_str) {
-                        if item.get("status").and_then(Value::as_str) == Some("inProgress") {
+                        if item.get("status").and_then(Value::as_str)
+                            == Some("inProgress")
+                        {
                             if self.proposed.len() >= MAX_ITEMS {
                                 self.disconnect();
-                                self.status = "Too many proposed file changes".into();
+                                self.status =
+                                    "Too many proposed file changes".into();
                             } else {
                                 self.proposed.insert(
                                     id.to_owned(),
-                                    ReviewedFileChange::capture(&self.workspace, &item),
+                                    ReviewedFileChange::capture(
+                                        &self.workspace,
+                                        &item,
+                                    ),
                                 );
                             }
                         } else {

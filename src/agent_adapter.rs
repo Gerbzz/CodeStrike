@@ -124,7 +124,8 @@ impl LocalCodexAdapter {
             .ok_or(AdapterError::UnknownApproval)?;
         if !matches!(
             method.as_str(),
-            "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
+            "item/commandExecution/requestApproval"
+                | "item/fileChange/requestApproval"
         ) {
             return Err(AdapterError::UnsupportedApproval);
         }
@@ -180,7 +181,11 @@ impl LocalCodexAdapter {
     }
 
     /// Model selection is supplied by the user's local UI. No entitlement is inferred.
-    pub fn start_thread(&mut self, project: &Path, model: &str) -> Result<String, AdapterError> {
+    pub fn start_thread(
+        &mut self,
+        project: &Path,
+        model: &str,
+    ) -> Result<String, AdapterError> {
         if self.phase != Phase::Ready {
             return Err(AdapterError::InvalidState);
         }
@@ -242,23 +247,31 @@ impl LocalCodexAdapter {
 
     /// Accepts one bounded JSONL frame. Server requests are surfaced, never
     /// answered automatically. Only a completed turn counts as success.
-    pub fn receive_line(&mut self, line: &str) -> Result<Vec<AdapterEffect>, AdapterError> {
+    pub fn receive_line(
+        &mut self,
+        line: &str,
+    ) -> Result<Vec<AdapterEffect>, AdapterError> {
         if line.len() > MAX_WIRE_LINE_BYTES {
             return Err(AdapterError::FrameTooLarge);
         }
-        let message: Value = serde_json::from_str(line.trim_end_matches(['\r', '\n']))
-            .map_err(|_| AdapterError::InvalidFrame)?;
+        let message: Value =
+            serde_json::from_str(line.trim_end_matches(['\r', '\n']))
+                .map_err(|_| AdapterError::InvalidFrame)?;
         let object = message.as_object().ok_or(AdapterError::InvalidFrame)?;
         if let Some(method) = object.get("method").and_then(Value::as_str) {
             if let Some(request_id) = object.get("id").filter(|id| !id.is_null()) {
-                let params = object.get("params").ok_or(AdapterError::InvalidFrame)?;
+                let params =
+                    object.get("params").ok_or(AdapterError::InvalidFrame)?;
                 self.check_scope_if_present(params)?;
                 if matches!(
                     method,
-                    "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
+                    "item/commandExecution/requestApproval"
+                        | "item/fileChange/requestApproval"
                 ) && (self.phase != Phase::Running
-                    || params.get("threadId").and_then(Value::as_str) != self.thread_id.as_deref()
-                    || params.get("turnId").and_then(Value::as_str) != self.turn_id.as_deref())
+                    || params.get("threadId").and_then(Value::as_str)
+                        != self.thread_id.as_deref()
+                    || params.get("turnId").and_then(Value::as_str)
+                        != self.turn_id.as_deref())
                 {
                     return Err(AdapterError::InvalidFrame);
                 }
@@ -292,7 +305,9 @@ impl LocalCodexAdapter {
             return Ok(Vec::new());
         }
         let expected = match self.phase {
-            Phase::Initializing(p) | Phase::StartingThread(p) | Phase::StartingTurn(p) => p,
+            Phase::Initializing(p)
+            | Phase::StartingThread(p)
+            | Phase::StartingTurn(p) => p,
             _ => return Err(AdapterError::UnexpectedResponse),
         };
         if id != expected {
@@ -313,7 +328,9 @@ impl LocalCodexAdapter {
             Phase::Initializing(_) => {
                 self.phase = Phase::Ready;
                 Ok(vec![
-                    AdapterEffect::Send(frame(json!({"method": "initialized", "params": {}}))),
+                    AdapterEffect::Send(frame(
+                        json!({"method": "initialized", "params": {}}),
+                    )),
                     AdapterEffect::Show(AgentEvent::Ready),
                 ])
             }
@@ -354,7 +371,8 @@ impl LocalCodexAdapter {
         self.check_scope_if_present(params)?;
         let event = match method {
             "item/started" | "item/completed"
-                if params.pointer("/item/type").and_then(Value::as_str) == Some("fileChange") =>
+                if params.pointer("/item/type").and_then(Value::as_str)
+                    == Some("fileChange") =>
             {
                 AgentEvent::FileChange(
                     params
@@ -379,7 +397,8 @@ impl LocalCodexAdapter {
             }
             "turn/completed" if self.phase == Phase::Running => {
                 let turn = params.get("turn").ok_or(AdapterError::InvalidFrame)?;
-                if turn.get("id").and_then(Value::as_str) != self.turn_id.as_deref() {
+                if turn.get("id").and_then(Value::as_str) != self.turn_id.as_deref()
+                {
                     return Err(AdapterError::InvalidFrame);
                 }
                 let outcome = match turn.get("status").and_then(Value::as_str) {
