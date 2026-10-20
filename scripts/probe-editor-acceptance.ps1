@@ -129,8 +129,11 @@ function Capture-Candidate([string]$name) {
                 $parameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
                     [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
                 $thumbnail.Save($stream, $codec, $parameters)
-                if ($stream.Length -gt 350KB) { throw 'Screenshot exceeded the bounded log size.' }
-                "CODESTRIKE_ACCEPTANCE_SCREENSHOT_${name}_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
+                if ($stream.Length -gt 350KB) { throw 'Screenshot exceeded the capture size bound.' }
+                $screenshotPath = Join-Path $root "screenshot-$name.jpg"
+                [System.IO.File]::WriteAllBytes($screenshotPath, $stream.ToArray())
+                $screenshotHash = (Get-FileHash -LiteralPath $screenshotPath -Algorithm SHA256).Hash
+                "CODESTRIKE_ACCEPTANCE_SCREENSHOT_${name}=file:$([System.IO.Path]::GetFileName($screenshotPath));sha256:$screenshotHash;bytes:$($stream.Length)"
             } finally { $stream.Dispose() }
         } finally { $thumbnail.Dispose() }
     } finally {

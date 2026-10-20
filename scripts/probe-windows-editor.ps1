@@ -97,8 +97,11 @@ public static class CodeStrikeWindowProbe {
                 $parameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
                     [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
                 $thumbnail.Save($stream, $codec, $parameters)
-                if ($stream.Length -gt 350KB) { throw 'Screenshot exceeded the bounded log size.' }
-                "CODESTRIKE_SCREENSHOT_${mode}_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
+                if ($stream.Length -gt 350KB) { throw 'Screenshot exceeded the capture size bound.' }
+                $screenshotPath = Join-Path $env:RUNNER_TEMP "codestrike-editor-$mode.jpg"
+                [System.IO.File]::WriteAllBytes($screenshotPath, $stream.ToArray())
+                $screenshotHash = (Get-FileHash -LiteralPath $screenshotPath -Algorithm SHA256).Hash
+                "CODESTRIKE_SCREENSHOT_${mode}=file:$([System.IO.Path]::GetFileName($screenshotPath));sha256:$screenshotHash;bytes:$($stream.Length)"
             } finally { $stream.Dispose() }
         } finally { $thumbnail.Dispose() }
     } finally {

@@ -123,8 +123,11 @@ try {
                 $parameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
                     [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
                 $small.Save($stream, $codec, $parameters)
-                if ($stream.Length -gt 350KB) { throw 'LSP screenshot exceeded its log bound.' }
-                "CODESTRIKE_LSP_SCREENSHOT_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
+                if ($stream.Length -gt 350KB) { throw 'LSP screenshot exceeded its capture size bound.' }
+                $screenshotPath = Join-Path $env:RUNNER_TEMP 'codestrike-lsp.jpg'
+                [System.IO.File]::WriteAllBytes($screenshotPath, $stream.ToArray())
+                $screenshotHash = (Get-FileHash -LiteralPath $screenshotPath -Algorithm SHA256).Hash
+                "CODESTRIKE_LSP_SCREENSHOT=file:$([System.IO.Path]::GetFileName($screenshotPath));sha256:$screenshotHash;bytes:$($stream.Length)"
             } finally { $stream.Dispose() }
         } finally { $small.Dispose() }
     } finally {
