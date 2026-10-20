@@ -568,10 +568,10 @@ index fb85013..c7ac84f 100644
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/panel/agent_view.rs b/lapce-app/src/panel/agent_view.rs
 new file mode 100644
-index 0000000..5d3d310
+index 0000000..9acf6b7
 --- /dev/null
 +++ b/lapce-app/src/panel/agent_view.rs
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,257 @@
 +use std::{
 +    cell::{Cell, RefCell},
 +    ffi::OsString,
@@ -585,7 +585,8 @@ index 0000000..5d3d310
 +    View,
 +    action::exec_after,
 +    reactive::{
-+        ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, create_rw_signal,
++        ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith,
++        create_rw_signal,
 +    },
 +    style::CursorStyle,
 +    views::{Decorators, label, scroll, stack},
