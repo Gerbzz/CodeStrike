@@ -3,11 +3,12 @@ name: CodeStrike editor candidate
 on:
   workflow_dispatch:
   push:
-    branches: [draft/lapce-foundation-migration]
+    branches: [draft/lapce-foundation-migration, draft/local-agent-adapter]
     paths:
       - .github/workflows/editor-candidate.yml
       - .gitmodules
       - editor/**
+      - src/agent*.rs
       - scripts/prepare-lapce.ps1
       - scripts/probe-windows-editor.ps1
       - scripts/probe-editor-acceptance.ps1

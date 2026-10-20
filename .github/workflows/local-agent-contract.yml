@@ -1,0 +1,71 @@
+name: CodeStrike local agent contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [draft/local-agent-adapter]
+    paths:
+      - .github/workflows/local-agent-contract.yml
+      - Cargo.toml
+      - Cargo.lock
+      - src/agent_adapter.rs
+      - src/agent_panel.rs
+      - src/agent_review.rs
+      - src/agent_session.rs
+      - src/unity_writer.rs
+      - src/unity_action.rs
+      - src/unity_connection.rs
+      - src/lib.rs
+      - tests/agent_adapter.rs
+      - tests/agent_panel.rs
+      - tests/agent_review.rs
+      - tests/agent_session.rs
+      - tests/fixtures/mock_app_server.py
+      - tests/unity_writer.rs
+      - tests/unity_action.rs
+      - tests/unity_connection.rs
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/local-agent-contract.yml
+      - Cargo.toml
+      - Cargo.lock
+      - src/agent_adapter.rs
+      - src/agent_panel.rs
+      - src/agent_review.rs
+      - src/agent_session.rs
+      - src/unity_writer.rs
+      - src/unity_action.rs
+      - src/unity_connection.rs
+      - src/lib.rs
+      - tests/agent_adapter.rs
+      - tests/agent_panel.rs
+      - tests/agent_review.rs
+      - tests/agent_session.rs
+      - tests/fixtures/mock_app_server.py
+      - tests/unity_writer.rs
+      - tests/unity_action.rs
+      - tests/unity_connection.rs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codestrike-local-agent-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Test local app-server contract and review gate
+        run: cargo test --locked --test agent_adapter --test agent_panel --test agent_review --test agent_session --test unity_writer --test unity_action --test unity_connection

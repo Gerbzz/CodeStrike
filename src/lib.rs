@@ -14,6 +14,21 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod process_scope;
 use process_scope::ProcessScope;
 
+/// Offline protocol boundary for a future per-user local agent panel.
+pub mod agent_adapter;
+/// Bounded local app-server process and event transport.
+pub mod agent_session;
+/// Read-only snapshot gate for a reviewed agent file change.
+pub mod agent_review;
+/// Session state and reviewed approval flow for a local agent panel.
+pub mod agent_panel;
+/// Local Unity MCP mutation coordination contract.
+pub mod unity_writer;
+/// Source-only Unity snapshot and typed action contract.
+pub mod unity_action;
+/// Local Unity project detection and read-only MCP capability discovery.
+pub mod unity_connection;
+
 const MAX_FILE: u64 = 20 * 1024 * 1024;
 const MAX_SEARCH_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_HITS: usize = 500;

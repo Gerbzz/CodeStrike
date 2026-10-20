@@ -1,11 +1,11 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index d0a94912..11877d80 100644
+index d0a9491..11877d8 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -3126,0 +3127 @@ dependencies = [
 + "tempfile",
 diff --git a/lapce-app/Cargo.toml b/lapce-app/Cargo.toml
-index c0f780dd..6f6325ba 100644
+index c0f780d..6f6325b 100644
 --- a/lapce-app/Cargo.toml
 +++ b/lapce-app/Cargo.toml
 @@ -75 +75 @@ features  = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndM
@@ -15,7 +15,7 @@ index c0f780dd..6f6325ba 100644
 +codestrike-online-grammars = []
 +codestrike-online-catalog = []
 diff --git a/lapce-app/src/about.rs b/lapce-app/src/about.rs
-index 75f92819..169e7034 100644
+index 75f9281..169e703 100644
 --- a/lapce-app/src/about.rs
 +++ b/lapce-app/src/about.rs
 @@ -9 +9 @@
@@ -74,7 +74,7 @@ index 75f92819..169e7034 100644
 +                || "Editor foundation: Lapce (Apache-2.0)".to_string(),
 +                || AboutUri::LAPCE.to_string(),
 diff --git a/lapce-app/src/app.rs b/lapce-app/src/app.rs
-index d3cbc526..38584b6b 100644
+index d3cbc52..38584b6 100644
 --- a/lapce-app/src/app.rs
 +++ b/lapce-app/src/app.rs
 @@ -47 +47 @@
@@ -204,21 +204,21 @@ index d3cbc526..38584b6b 100644
 +            let mut menu = Menu::new("CodeStrike")
 +                .entry(MenuItem::new("About CodeStrike").action(move || {
 diff --git a/lapce-app/src/command.rs b/lapce-app/src/command.rs
-index c0cc3b81..26eae589 100644
+index c0cc3b8..26eae58 100644
 --- a/lapce-app/src/command.rs
 +++ b/lapce-app/src/command.rs
 @@ -551 +551 @@ pub enum LapceWorkbenchCommand {
 -    #[strum(message = "About Lapce")]
 +    #[strum(message = "About CodeStrike")]
 diff --git a/lapce-app/src/config.rs b/lapce-app/src/config.rs
-index 10705772..b966ed80 100644
+index 1070577..b966ed8 100644
 --- a/lapce-app/src/config.rs
 +++ b/lapce-app/src/config.rs
 @@ -217 +217 @@ fn merge_config(
 -                    let path = path.join("./.lapce/settings.toml");
 +                    let path = path.join("./.codestrike/settings.toml");
 diff --git a/lapce-app/src/doc.rs b/lapce-app/src/doc.rs
-index b20d13a1..630d8d79 100644
+index b20d13a..630d8d7 100644
 --- a/lapce-app/src/doc.rs
 +++ b/lapce-app/src/doc.rs
 @@ -76 +76,2 @@
@@ -268,21 +268,20 @@ index b20d13a1..630d8d79 100644
 +                },
 +            );
 diff --git a/lapce-app/src/editor.rs b/lapce-app/src/editor.rs
-index d878e720..51e49fbd 100644
+index d878e72..37b4cdc 100644
 --- a/lapce-app/src/editor.rs
 +++ b/lapce-app/src/editor.rs
-@@ -1085,4 +1085,6 @@ pub fn run_focus_command(
+@@ -1085,3 +1085,5 @@ pub fn run_focus_command(
 -                if self.common.find.replace_active.get_untracked() {
 -                    self.common.find.replace_focus.set(true);
 -                }
 +                self.common.find.replace_active.set(true);
 +                self.common.find.replace_focus.set(true);
-             }
++            }
 +            FocusCommand::GetCompletion => {
 +                self.update_completion(true);
-+            }
 diff --git a/lapce-app/src/editor/location.rs b/lapce-app/src/editor/location.rs
-index 35e79f56..e74885c7 100644
+index 35e79f5..e74885c 100644
 --- a/lapce-app/src/editor/location.rs
 +++ b/lapce-app/src/editor/location.rs
 @@ -21,0 +22 @@ pub enum EditorPosition {
@@ -292,7 +291,7 @@ index 35e79f56..e74885c7 100644
 +                text.offset_of_line_col(*line, *byte_col)
 +            }
 diff --git a/lapce-app/src/global_search.rs b/lapce-app/src/global_search.rs
-index 557bf284..0d5b2c8c 100644
+index 557bf28..0d5b2c8 100644
 --- a/lapce-app/src/global_search.rs
 +++ b/lapce-app/src/global_search.rs
 @@ -1 +1 @@
@@ -544,8 +543,21 @@ index 557bf284..0d5b2c8c 100644
 +        });
 +    }
 +
+diff --git a/lapce-app/src/lib.rs b/lapce-app/src/lib.rs
+index 43a55ce..1c62f06 100644
+--- a/lapce-app/src/lib.rs
++++ b/lapce-app/src/lib.rs
+@@ -1,0 +2,8 @@
++#[path = "../../../../src/agent_adapter.rs"]
++pub mod agent_adapter;
++#[path = "../../../../src/agent_review.rs"]
++pub mod agent_review;
++#[path = "../../../../src/agent_session.rs"]
++pub mod agent_session;
++#[path = "../../../../src/agent_panel.rs"]
++pub mod agent_panel;
 diff --git a/lapce-app/src/palette.rs b/lapce-app/src/palette.rs
-index fb850137..c7ac84ff 100644
+index fb85013..c7ac84f 100644
 --- a/lapce-app/src/palette.rs
 +++ b/lapce-app/src/palette.rs
 @@ -886 +886 @@ fn set_run_configs(&self, content: String) {
@@ -554,8 +566,285 @@ index fb850137..c7ac84ff 100644
 @@ -945 +945 @@ fn get_run_configs(&self) {
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
+diff --git a/lapce-app/src/panel/agent_view.rs b/lapce-app/src/panel/agent_view.rs
+new file mode 100644
+index 0000000..5d3d310
+--- /dev/null
++++ b/lapce-app/src/panel/agent_view.rs
+@@ -0,0 +1,256 @@
++use std::{
++    cell::{Cell, RefCell},
++    ffi::OsString,
++    path::PathBuf,
++    rc::Rc,
++    sync::Arc,
++    time::Duration,
++};
++
++use floem::{
++    View,
++    action::exec_after,
++    reactive::{
++        ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, create_rw_signal,
++    },
++    style::CursorStyle,
++    views::{Decorators, label, scroll, stack},
++};
++use lapce_xi_rope::Rope;
++
++use crate::{
++    agent_adapter::ApprovalDecision,
++    agent_panel::{LocalAgentPanel, PanelSnapshot},
++    config::{LapceConfig, color::LapceColor},
++    editor::EditorData,
++    main_split::MainSplitData,
++    text_input::TextInputBuilder,
++    window_tab::WindowTabData,
++    workspace::LapceWorkspace,
++};
++
++#[derive(Clone)]
++pub struct AgentPanelData {
++    controller: Rc<RefCell<LocalAgentPanel>>,
++    snapshot: RwSignal<PanelSnapshot>,
++    error: RwSignal<String>,
++    executable: EditorData,
++    model: EditorData,
++    prompt: EditorData,
++    workspace: Option<PathBuf>,
++    local: bool,
++}
++
++impl AgentPanelData {
++    pub fn new(
++        cx: Scope,
++        main_split: MainSplitData,
++        workspace: Arc<LapceWorkspace>,
++    ) -> Self {
++        let common = main_split.common.clone();
++        let executable = main_split.editors.make_local(cx, common.clone());
++        executable.doc().reload(
++            Rope::from(if cfg!(windows) { "codex.cmd" } else { "codex" }),
++            true,
++        );
++        let model = main_split.editors.make_local(cx, common.clone());
++        let prompt = main_split.editors.make_local(cx, common);
++        let root = workspace.path.clone();
++        let controller = LocalAgentPanel::new(root.clone().unwrap_or_default());
++        let snapshot = cx.create_rw_signal(controller.snapshot());
++        Self {
++            controller: Rc::new(RefCell::new(controller)),
++            snapshot,
++            error: cx.create_rw_signal(String::new()),
++            executable,
++            model,
++            prompt,
++            workspace: root,
++            local: workspace.kind.is_local(),
++        }
++    }
++
++    fn refresh(&self) {
++        let next = self.controller.borrow().snapshot();
++        if self.snapshot.get_untracked() != next {
++            self.snapshot.set(next);
++        }
++    }
++
++    fn poll(&self) {
++        self.controller.borrow_mut().poll();
++        self.refresh();
++    }
++
++    fn start(&self) {
++        if !self.local || self.workspace.is_none() {
++            self.error
++                .set("Open a local folder before starting an agent.".into());
++            return;
++        }
++        let executable = editor_text(&self.executable);
++        let model = editor_text(&self.model);
++        if executable.trim().is_empty() || model.trim().is_empty() {
++            self.error
++                .set("Enter an app-server executable and a model ID.".into());
++            return;
++        }
++        let result = self.controller.borrow_mut().start(
++            PathBuf::from(executable.trim()).as_path(),
++            &[OsString::from("app-server")],
++            model.trim(),
++        );
++        self.error.set(
++            result
++                .err()
++                .map(|error| format!("Could not start local agent: {error}"))
++                .unwrap_or_default(),
++        );
++        self.refresh();
++    }
++
++    fn stop(&self) {
++        self.controller.borrow_mut().disconnect();
++        self.error.set(String::new());
++        self.refresh();
++    }
++
++    fn send(&self) {
++        let prompt = editor_text(&self.prompt);
++        let result = self.controller.borrow_mut().send_prompt(&prompt);
++        self.error.set(
++            result
++                .err()
++                .map(|error| format!("Could not send prompt: {error}"))
++                .unwrap_or_default(),
++        );
++        self.refresh();
++    }
++
++    fn interrupt(&self) {
++        let result = self.controller.borrow_mut().interrupt();
++        self.error.set(
++            result
++                .err()
++                .map(|error| format!("Could not stop turn: {error}"))
++                .unwrap_or_default(),
++        );
++        self.refresh();
++    }
++
++    fn decide(&self, decision: ApprovalDecision) {
++        let Some(pending) = self.snapshot.get_untracked().pending.first().cloned()
++        else {
++            return;
++        };
++        let result = self
++            .controller
++            .borrow_mut()
++            .decide(&pending.request_id, decision);
++        self.error.set(result.err().unwrap_or_default());
++        self.refresh();
++    }
++}
++
++fn editor_text(editor: &EditorData) -> String {
++    editor
++        .doc()
++        .buffer
++        .with_untracked(|buffer| buffer.to_string())
++}
++
++fn schedule_poll(data: AgentPanelData, active: Rc<Cell<bool>>) {
++    exec_after(Duration::from_millis(80), move |_| {
++        if active.get() {
++            data.poll();
++            schedule_poll(data, active);
++        }
++    });
++}
++
++fn action_button(
++    title: &'static str,
++    action: impl Fn() + 'static,
++    config: ReadSignal<Arc<LapceConfig>>,
++) -> impl View {
++    label(move || title.to_owned())
++        .on_click_stop(move |_| action())
++        .style(move |s| {
++            s.padding_horiz(8.0)
++                .padding_vert(6.0)
++                .border(1.0)
++                .border_radius(5.0)
++                .border_color(config.get().color(LapceColor::LAPCE_BORDER))
++                .hover(|s| s.cursor(CursorStyle::Pointer))
++        })
++}
++
++pub fn agent_panel(window_tab_data: Rc<WindowTabData>) -> impl View {
++    let data = window_tab_data.agent.clone();
++    let config = window_tab_data.common.config;
++    let active = Rc::new(Cell::new(true));
++    schedule_poll(data.clone(), active.clone());
++
++    let start = data.clone();
++    let stop = data.clone();
++    let send = data.clone();
++    let interrupt = data.clone();
++    let accept = data.clone();
++    let decline = data.clone();
++    let cancel = data.clone();
++    let snapshot = data.snapshot;
++    let error = data.error;
++    let scope = data
++        .workspace
++        .as_ref()
++        .map(|path| path.display().to_string())
++        .unwrap_or_else(|| "No local folder".into());
++
++    scroll(stack((
++      stack((
++        label(|| "Local agent".to_owned()).style(|s| s.font_bold().padding_bottom(6.0)),
++        label(move || format!("Workspace: {scope}")).style(move |s| s.color(config.get().color(LapceColor::EDITOR_DIM)).min_width(0.0)),
++        label(|| "App-server executable".to_owned()).style(|s| s.padding_top(10.0)),
++        TextInputBuilder::new().build_editor(data.executable.clone()).style(move |s| s.width_pct(100.0).padding(5.0).border(1.0).border_color(config.get().color(LapceColor::LAPCE_BORDER))),
++        label(|| "Model ID".to_owned()).style(|s| s.padding_top(8.0)),
++        TextInputBuilder::new().build_editor(data.model.clone()).style(move |s| s.width_pct(100.0).padding(5.0).border(1.0).border_color(config.get().color(LapceColor::LAPCE_BORDER))),
++        stack((
++            action_button("Start / reconnect", move || start.start(), config),
++            action_button("Stop", move || stop.stop(), config),
++        )).style(|s| s.items_center().padding_vert(8.0)),
++        label(move || snapshot.get().status).style(move |s| s.color(config.get().color(LapceColor::EDITOR_DIM)).min_width(0.0)),
++        label(move || error.get()).style(move |s| s.color(config.get().color(LapceColor::LAPCE_WARN)).min_width(0.0)),
++      )).style(|s| s.flex_col().width_pct(100.0)),
++      stack((
++        label(|| "Prompt".to_owned()).style(|s| s.padding_top(10.0)),
++        TextInputBuilder::new().build_editor(data.prompt.clone()).style(move |s| s.width_pct(100.0).padding(5.0).border(1.0).border_color(config.get().color(LapceColor::LAPCE_BORDER))),
++        stack((
++            action_button("Send", move || send.send(), config),
++            action_button("Cancel turn", move || interrupt.interrupt(), config),
++        )).style(|s| s.items_center().padding_vert(8.0)),
++        label(|| "Agent reply".to_owned()).style(|s| s.font_bold().padding_top(8.0)),
++        scroll(label(move || snapshot.get().transcript).style(|s| s.min_width(0.0))).style(|s| s.width_pct(100.0).height(115.0)),
++      )).style(|s| s.flex_col().width_pct(100.0)),
++      stack((
++        label(|| "Proposed edit".to_owned()).style(|s| s.font_bold().padding_top(8.0)),
++        label(move || {
++            let snapshot = snapshot.get();
++            match snapshot.pending.first() {
++                Some(request) if request.can_accept => format!("Reviewable file edit - {} request(s)", snapshot.pending.len()),
++                Some(request) => format!("Approval unavailable for {} - {} request(s)", request.method, snapshot.pending.len()),
++                None => "No request awaiting review".to_owned(),
++            }
++        }).style(move |s| s.color(config.get().color(LapceColor::EDITOR_DIM)).min_width(0.0)),
++        label(move || snapshot.get().pending.first().map(|pending| pending.reason.clone()).unwrap_or_else(|| "No approval pending".into())).style(|s| s.min_width(0.0)),
++        scroll(label(move || snapshot.get().pending.first().map(|pending| pending.preview.clone()).unwrap_or_else(|| snapshot.get().diff)).style(|s| s.min_width(0.0))).style(|s| s.width_pct(100.0).height(150.0)),
++        stack((
++            action_button("Approve edit", move || accept.decide(ApprovalDecision::Accept), config),
++            action_button("Decline", move || decline.decide(ApprovalDecision::Decline), config),
++            action_button("Cancel", move || cancel.decide(ApprovalDecision::Cancel), config),
++        )).style(|s| s.items_center().padding_vert(8.0)),
++        label(|| "Only reviewed updates to existing workspace files can be approved here.".to_owned()).style(move |s| s.color(config.get().color(LapceColor::EDITOR_DIM)).min_width(0.0)),
++      )).style(|s| s.flex_col().width_pct(100.0)),
++    )).style(|s| s.flex_col().width_pct(100.0).padding(10.0)))
++    .style(|s| s.width_pct(100.0).height_pct(100.0))
++    .on_cleanup(move || active.set(false))
++}
+diff --git a/lapce-app/src/panel/data.rs b/lapce-app/src/panel/data.rs
+index b18f06d..82eebaa 100644
+--- a/lapce-app/src/panel/data.rs
++++ b/lapce-app/src/panel/data.rs
+@@ -47 +47 @@ pub fn default_panel_order() -> PanelOrder {
+-        im::vector![PanelKind::DocumentSymbol,],
++        im::vector![PanelKind::DocumentSymbol, PanelKind::Agent],
+@@ -52,0 +53,7 @@ pub fn default_panel_order() -> PanelOrder {
++pub fn ensure_agent_panel(mut order: PanelOrder) -> PanelOrder {
++    if !order.values().any(|panels| panels.contains(&PanelKind::Agent)) {
++        order.entry(PanelPosition::RightTop).or_default().push_back(PanelKind::Agent);
++    }
++    order
++}
++
 diff --git a/lapce-app/src/panel/global_search_view.rs b/lapce-app/src/panel/global_search_view.rs
-index 0cc1edd4..255d5155 100644
+index 0cc1edd..255d515 100644
 --- a/lapce-app/src/panel/global_search_view.rs
 +++ b/lapce-app/src/panel/global_search_view.rs
 @@ -8 +8,3 @@
@@ -729,8 +1018,34 @@ index 0cc1edd4..255d5155 100644
 @@ -308 +460 @@ fn search_result(
 -    .style(|s| s.size_pct(100.0, 100.0))
 +    .style(|s| s.width_pct(100.0).flex_grow(1.0).min_height(0.0))
+diff --git a/lapce-app/src/panel/kind.rs b/lapce-app/src/panel/kind.rs
+index 695990e..6ef1e24 100644
+--- a/lapce-app/src/panel/kind.rs
++++ b/lapce-app/src/panel/kind.rs
+@@ -10,0 +11 @@ pub enum PanelKind {
++    Agent,
+@@ -26,0 +28 @@ pub fn svg_name(&self) -> &'static str {
++            PanelKind::Agent => LapceIcons::LIGHTBULB,
+@@ -52,0 +55 @@ pub fn default_position(&self) -> PanelPosition {
++            PanelKind::Agent => PanelPosition::RightTop,
+diff --git a/lapce-app/src/panel/mod.rs b/lapce-app/src/panel/mod.rs
+index 016192e..15d15ce 100644
+--- a/lapce-app/src/panel/mod.rs
++++ b/lapce-app/src/panel/mod.rs
+@@ -0,0 +1 @@
++pub mod agent_view;
+diff --git a/lapce-app/src/panel/view.rs b/lapce-app/src/panel/view.rs
+index d9a9b0d..2f5cfb9 100644
+--- a/lapce-app/src/panel/view.rs
++++ b/lapce-app/src/panel/view.rs
+@@ -19,0 +20 @@
++    agent_view::agent_panel,
+@@ -473,0 +475 @@ fn panel_view(
++                PanelKind::Agent => agent_panel(window_tab_data.clone()).into_any(),
+@@ -554,0 +557 @@ fn panel_picker(
++                PanelKind::Agent => "Local Agent",
 diff --git a/lapce-app/src/plugin.rs b/lapce-app/src/plugin.rs
-index c229528f..a1ff42b9 100644
+index c229528..a1ff42b 100644
 --- a/lapce-app/src/plugin.rs
 +++ b/lapce-app/src/plugin.rs
 @@ -186 +186,3 @@ pub fn new(
@@ -747,14 +1062,14 @@ index c229528f..a1ff42b9 100644
 -        if !is_latest {
 +        if cfg!(feature = "codestrike-online-catalog") && !is_latest {
 diff --git a/lapce-app/src/terminal/panel.rs b/lapce-app/src/terminal/panel.rs
-index 81455b2d..90657bfe 100644
+index 81455b2..90657bf 100644
 --- a/lapce-app/src/terminal/panel.rs
 +++ b/lapce-app/src/terminal/panel.rs
 @@ -521 +521 @@ fn get_run_config_by_name(&self, name: &str) -> Option<RunDebugConfig> {
 -            let run_toml = workspace.join(".lapce").join("run.toml");
 +            let run_toml = workspace.join(".codestrike").join("run.toml");
 diff --git a/lapce-app/src/title.rs b/lapce-app/src/title.rs
-index 59336034..b6cdf3db 100644
+index 5933603..b6cdf3d 100644
 --- a/lapce-app/src/title.rs
 +++ b/lapce-app/src/title.rs
 @@ -47,8 +46,0 @@ fn left(
@@ -769,15 +1084,45 @@ index 59336034..b6cdf3db 100644
 @@ -380 +372 @@ fn right(
 -                    .entry(MenuItem::new("About Lapce").action(move || {
 +                    .entry(MenuItem::new("About CodeStrike").action(move || {
+diff --git a/lapce-app/src/window_tab.rs b/lapce-app/src/window_tab.rs
+index fc547d1..2c35bd6 100644
+--- a/lapce-app/src/window_tab.rs
++++ b/lapce-app/src/window_tab.rs
+@@ -80,0 +81 @@
++        agent_view::AgentPanelData,
+@@ -82 +83 @@
+-        data::{PanelData, PanelSection, default_panel_order},
++        data::{PanelData, PanelSection, default_panel_order, ensure_agent_panel},
+@@ -176,0 +178 @@ pub struct WindowTabData {
++    pub agent: AgentPanelData,
+@@ -456,3 +457,0 @@ pub fn new(
+-                let panel_order = db
+-                    .get_panel_orders()
+-                    .unwrap_or_else(|_| default_panel_order());
+@@ -460 +459 @@ pub fn new(
+-                    panels: cx.create_rw_signal(panel_order),
++                    panels: cx.create_rw_signal(ensure_agent_panel(i.panel.panels.clone())),
+@@ -475 +474 @@ pub fn new(
+-                let panel_order = db
++                let panel_order = ensure_agent_panel(db
+@@ -477 +476 @@ pub fn new(
+-                    .unwrap_or_else(|_| default_panel_order());
++                    .unwrap_or_else(|_| default_panel_order()));
+@@ -513,0 +513 @@ pub fn new(
++        let agent = AgentPanelData::new(cx, main_split.clone(), workspace.clone());
+@@ -553,0 +554 @@ pub fn new(
++            agent,
+@@ -2632,0 +2634 @@ fn toggle_panel_focus(&self, kind: PanelKind) {
++            | PanelKind::Agent
 diff --git a/lapce-core/build.rs b/lapce-core/build.rs
-index d4a7d155..695113b6 100644
+index d4a7d15..695113b 100644
 --- a/lapce-core/build.rs
 +++ b/lapce-core/build.rs
 @@ -29 +29 @@ fn main() -> Result<()> {
 -        pub const NAME: &str = "Lapce-{branch}";
 +        pub const NAME: &str = "CodeStrike";
 diff --git a/lapce-core/src/directory.rs b/lapce-core/src/directory.rs
-index 42849773..987b4a3c 100644
+index 4284977..987b4a3 100644
 --- a/lapce-core/src/directory.rs
 +++ b/lapce-core/src/directory.rs
 @@ -16 +16 @@ fn project_dirs() -> Option<ProjectDirs> {
@@ -787,7 +1132,7 @@ index 42849773..987b4a3c 100644
 -                return ProjectDirs::from_path(parent.join("lapce-data"));
 +                return ProjectDirs::from_path(parent.join("codestrike-data"));
 diff --git a/lapce-proxy/Cargo.toml b/lapce-proxy/Cargo.toml
-index 6acc85df..ea2c9d08 100644
+index 6acc85d..ea2c9d0 100644
 --- a/lapce-proxy/Cargo.toml
 +++ b/lapce-proxy/Cargo.toml
 @@ -69,0 +70,3 @@ branch = "lapce"
@@ -795,7 +1140,7 @@ index 6acc85df..ea2c9d08 100644
 +[dev-dependencies]
 +tempfile = { workspace = true }
 diff --git a/lapce-proxy/src/buffer.rs b/lapce-proxy/src/buffer.rs
-index d49951fa..ef014af9 100644
+index d49951f..ef014af 100644
 --- a/lapce-proxy/src/buffer.rs
 +++ b/lapce-proxy/src/buffer.rs
 @@ -5,0 +6 @@
@@ -1166,7 +1511,7 @@ index d49951fa..ef014af9 100644
 +}
 diff --git a/lapce-proxy/src/codestrike_replace.rs b/lapce-proxy/src/codestrike_replace.rs
 new file mode 100644
-index 00000000..7344416a
+index 0000000..7344416
 --- /dev/null
 +++ b/lapce-proxy/src/codestrike_replace.rs
 @@ -0,0 +1,525 @@
@@ -1696,7 +2041,7 @@ index 00000000..7344416a
 +    }
 +}
 diff --git a/lapce-proxy/src/dispatch.rs b/lapce-proxy/src/dispatch.rs
-index 35a42c8d..fc9e518b 100644
+index 35a42c8..fc9e518 100644
 --- a/lapce-proxy/src/dispatch.rs
 +++ b/lapce-proxy/src/dispatch.rs
 @@ -54,0 +55,71 @@
@@ -1809,19 +2154,19 @@ index 35a42c8d..fc9e518b 100644
 +                }
 +            }
 diff --git a/lapce-proxy/src/lib.rs b/lapce-proxy/src/lib.rs
-index 62067e17..4d150fb8 100644
+index 62067e1..4d150fb 100644
 --- a/lapce-proxy/src/lib.rs
 +++ b/lapce-proxy/src/lib.rs
 @@ -4,0 +5 @@
 +pub mod codestrike_replace;
 diff --git a/lapce-proxy/src/plugin/psp.rs b/lapce-proxy/src/plugin/psp.rs
+index 331fbe5..ed30ae9 100644
 --- a/lapce-proxy/src/plugin/psp.rs
 +++ b/lapce-proxy/src/plugin/psp.rs
-@@ -1114,1 +1114,3 @@ pub fn handle_notification(
-                 let volt_display_name = self.volt_display_name.clone();
+@@ -1114,0 +1115,2 @@ pub fn handle_notification(
 +                let core_rpc = catalog_rpc.core_rpc.clone();
 +                let failure_title = format!("Language server: {volt_display_name}");
-@@ -1129,1 +1131,10 @@ pub fn handle_notification(
+@@ -1129 +1131,10 @@ pub fn handle_notification(
 -                        tracing::error!("{:?}", err);
 +                        let failure_message =
 +                            "Local language server unavailable. Check its path in workspace settings.";
@@ -1834,7 +2179,7 @@ diff --git a/lapce-proxy/src/plugin/psp.rs b/lapce-proxy/src/plugin/psp.rs
 +                            },
 +                        );
 diff --git a/lapce-rpc/src/proxy.rs b/lapce-rpc/src/proxy.rs
-index b58b2ad3..7e870672 100644
+index b58b2ad..7e87067 100644
 --- a/lapce-rpc/src/proxy.rs
 +++ b/lapce-rpc/src/proxy.rs
 @@ -240,0 +241,7 @@ pub enum ProxyNotification {
