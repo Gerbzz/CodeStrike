@@ -1,0 +1,37 @@
+name: CodeStrike rust-analyzer response diagnosis
+
+on:
+  push:
+    branches: [codex/rust-analyzer-response-diagnostic-20261021]
+
+permissions:
+  contents: read
+
+jobs:
+  public-fixture-stdio-diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install and identify the same local rust-analyzer
+        shell: pwsh
+        run: |
+          rustup component add rust-analyzer
+          if ($LASTEXITCODE -ne 0) { throw 'rust-analyzer installation failed' }
+          $server = (& rust-analyzer --version).Trim()
+          $compiler = (& rustc --version).Trim()
+          $server
+          $compiler
+          if ($server -ne 'rust-analyzer 1.99.1 (58cf8f9c 2026-10-13)' -or $compiler -ne 'rustc 1.99.1 (58cf8f9c3 2026-10-13)') {
+            throw 'The hosted toolchain differs from the failing e615 GUI run; no equivalent diagnosis is claimed.'
+          }
+      - name: Record response, error and cancellation evidence for the unchanged public fixture
+        shell: pwsh
+        run: python scripts/diagnostics/rust_analyzer_stdio.py
