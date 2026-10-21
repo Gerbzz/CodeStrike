@@ -41,7 +41,7 @@ $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSourc
 [System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
 [lapce-rust]
 serverPath = "rust-analyzer"
-checkOnSave = false
+checkOnSave = true
 '@)
 
 $start = [System.Diagnostics.ProcessStartInfo]::new($exe)
