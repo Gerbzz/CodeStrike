@@ -344,8 +344,12 @@ fn main() -> eframe::Result {
     let workspace = arg("--workspace");
     let file = arg("--file");
     let capture = arg("--capture");
+    let mut viewport = egui::ViewportBuilder::default().with_inner_size([1320.0, 790.0]).with_min_inner_size([960.0, 650.0]);
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../../assets/branding/CodeStrike-geometric.png")) {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1320.0, 790.0]).with_min_inner_size([960.0, 650.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native("CodeStrike", options, Box::new(move |_cc| Ok(Box::new(CodeApp::new(workspace, file, capture)))))

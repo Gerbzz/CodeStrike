@@ -15,10 +15,10 @@ index c0f780dd..6f6325ba 100644
 +codestrike-online-grammars = []
 +codestrike-online-catalog = []
 diff --git a/lapce-app/src/about.rs b/lapce-app/src/about.rs
-index 75f92819..169e7034 100644
+index 75f9281..2886350 100644
 --- a/lapce-app/src/about.rs
 +++ b/lapce-app/src/about.rs
-@@ -9 +9 @@
+@@ -9 +9 @@ use floem::{
 -    views::{Decorators, container, label, stack, svg},
 +    views::{Decorators, container, img, label, stack},
 @@ -24,4 +24,2 @@ impl AboutUri {
@@ -28,18 +28,21 @@ index 75f92819..169e7034 100644
 -    const DISCORD: &'static str = "https://discord.gg/n8tGJ6Rn6D";
 +    const CODESTRIKE: &'static str = "https://github.com/Gerbzz/CodeStrike";
 +    const LAPCE: &'static str = "https://github.com/lapce/lapce";
-@@ -104,5 +102,5 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
+@@ -104,5 +102,8 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -            svg(move || (config.get()).logo_svg()).style(move |s| {
 -                s.size(logo_size, logo_size)
 -                    .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
 -            }),
 -            label(|| "Lapce".to_string()).style(move |s| {
 +            img(|| {
-+                include_bytes!("../../../../assets/branding/CodeStrike.png").to_vec()
++                include_bytes!(
++                    "../../../../assets/branding/CodeStrike-geometric.png"
++                )
++                .to_vec()
 +            })
 +            .style(move |s| s.size(logo_size, logo_size)),
 +            label(|| "CodeStrike".to_string()).style(move |s| {
-@@ -113,4 +111,5 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
+@@ -113,4 +114,5 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -            label(|| format!("Version: {}", VERSION)).style(move |s| {
 -                s.margin_top(10.0)
 -                    .color(config.get().color(LapceColor::EDITOR_DIM))
@@ -49,12 +52,12 @@ index 75f92819..169e7034 100644
 +                    s.margin_top(10.0)
 +                        .color(config.get().color(LapceColor::EDITOR_DIM))
 +                }),
-@@ -118,2 +117,2 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
+@@ -118,2 +120,2 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -                || "Website".to_string(),
 -                || AboutUri::LAPCE.to_string(),
 +                || "CodeStrike source".to_string(),
 +                || AboutUri::CODESTRIKE.to_string(),
-@@ -125,16 +124,2 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
+@@ -125,16 +127,2 @@ pub fn about_popup(window_tab_data: Rc<WindowTabData>) -> impl View {
 -                || "GitHub".to_string(),
 -                || AboutUri::GITHUB.to_string(),
 -                move || config.get().color(LapceColor::EDITOR_LINK),
@@ -74,22 +77,33 @@ index 75f92819..169e7034 100644
 +                || "Editor foundation: Lapce (Apache-2.0)".to_string(),
 +                || AboutUri::LAPCE.to_string(),
 diff --git a/lapce-app/src/app.rs b/lapce-app/src/app.rs
-index d3cbc526..38584b6b 100644
+index d3cbc52..b1fea82 100644
 --- a/lapce-app/src/app.rs
 +++ b/lapce-app/src/app.rs
-@@ -47 +47 @@
+@@ -47 +47 @@ use floem::{
 -        empty, label, rich_text,
 +        empty, img, label, rich_text,
-@@ -118 +118 @@
+@@ -118 +118 @@ mod logging;
 -#[clap(name = "Lapce")]
 +#[clap(name = "CodeStrike")]
 @@ -122 +122 @@ struct Cli {
 -    /// Launch new window even if Lapce is already running
 +    /// Launch a new window even if CodeStrike is already running
-@@ -208 +208 @@ fn default_window_config(&self) -> WindowConfig {
+@@ -206 +206 @@ impl AppData {
+-        WindowConfig::default()
++        let config = WindowConfig::default()
+@@ -208 +208,9 @@ impl AppData {
 -            .title("Lapce")
-+            .title("CodeStrike")
-@@ -2056,0 +2057,82 @@ fn main_split(window_tab_data: Rc<WindowTabData>) -> impl View {
++            .title("CodeStrike");
++        #[cfg(target_os = "windows")]
++        {
++            use floem::window::{Icon, IconExtWindows};
++            if let Ok(icon) = Icon::from_resource(1, None) {
++                return config.window_icon(icon);
++            }
++        }
++        config
+@@ -2056,0 +2065,85 @@ fn main_split(window_tab_data: Rc<WindowTabData>) -> impl View {
 +fn codestrike_start(window_tab_data: Rc<WindowTabData>) -> impl View {
 +    let config = window_tab_data.common.config;
 +    let workbench_command = window_tab_data.common.workbench_command;
@@ -99,7 +113,10 @@ index d3cbc526..38584b6b 100644
 +    container(
 +        stack((
 +            img(|| {
-+                include_bytes!("../../../../assets/branding/CodeStrike.png").to_vec()
++                include_bytes!(
++                    "../../../../assets/branding/CodeStrike-geometric.png"
++                )
++                .to_vec()
 +            })
 +            .style(|s| s.size(112.0, 112.0)),
 +            label(|| "CodeStrike".to_string()).style(move |s| {
@@ -172,33 +189,33 @@ index d3cbc526..38584b6b 100644
 +    .debug_name("CodeStrike Start")
 +}
 +
-@@ -2190 +2272,5 @@ fn workbench(window_tab_data: Rc<WindowTabData>) -> impl View {
+@@ -2190 +2283,5 @@ fn workbench(window_tab_data: Rc<WindowTabData>) -> impl View {
 -                main_split(window_tab_data.clone()),
 +                stack((
 +                    main_split(window_tab_data.clone()),
 +                    codestrike_start(window_tab_data.clone()),
 +                ))
 +                .style(|s| s.width_full().flex_grow(1.0).flex_basis(0.0)),
-@@ -3677,2 +3763,2 @@ fn window(window_data: WindowData) -> impl View {
+@@ -3677,2 +3774,2 @@ fn window(window_data: WindowData) -> impl View {
 -            Some(workspace) => format!("{workspace} - Lapce"),
 -            None => "Lapce".to_string(),
 +            Some(workspace) => format!("{workspace} - CodeStrike"),
 +            None => "CodeStrike".to_string(),
-@@ -3706 +3792 @@ fn window(window_data: WindowData) -> impl View {
+@@ -3706 +3803 @@ fn window(window_data: WindowData) -> impl View {
 -            Menu::new("Lapce")
 +            Menu::new("CodeStrike")
-@@ -3721 +3807 @@ pub fn launch() {
+@@ -3721 +3818 @@ pub fn launch() {
 -    trace!(TraceLevel::INFO, "Starting up Lapce..");
 +    trace!(TraceLevel::INFO, "Starting up CodeStrike editor preview..");
-@@ -3792 +3878 @@ pub fn launch() {
+@@ -3792 +3889 @@ pub fn launch() {
 -            eprintln!("Failed to launch lapce: {why}");
 +            eprintln!("Failed to launch CodeStrike: {why}");
-@@ -3894,0 +3981 @@ pub fn launch() {
+@@ -3894,0 +3992 @@ pub fn launch() {
 +    #[cfg(feature = "codestrike-online-grammars")]
-@@ -4169 +4256 @@ pub fn window_menu(
+@@ -4169 +4267 @@ pub fn window_menu(
 -    Menu::new("Lapce")
 +    Menu::new("CodeStrike")
-@@ -4171,2 +4258,2 @@ pub fn window_menu(
+@@ -4171,2 +4269,2 @@ pub fn window_menu(
 -            let mut menu = Menu::new("Lapce")
 -                .entry(MenuItem::new("About Lapce").action(move || {
 +            let mut menu = Menu::new("CodeStrike")

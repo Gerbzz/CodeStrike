@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/CodeStrike.png" alt="Original CodeStrike octopus mark" width="144" height="144">
+  <img src="assets/branding/CodeStrike-geometric.svg" alt="CodeStrike: paired source scopes surround a live insertion rail" width="144" height="144">
 </p>
 
 <h1 align="center">CodeStrike</h1>
@@ -105,6 +105,6 @@ The [candidate acceptance matrix](docs/migration/ACCEPTANCE.md) records the test
 
 ## Source and attribution
 
-The original CodeStrike and PWDS artwork above is retained. [Brand provenance](assets/branding/provenance.json) and [default-editor screenshot provenance](docs/SCREENSHOT_PROVENANCE.md) identify those assets. The editor candidate is based on pinned [Lapce v0.4.6](https://github.com/lapce/lapce/releases/tag/v0.4.6) under Apache-2.0; its license and source history remain in the submodule. [`THIRD_PARTY.md`](THIRD_PARTY.md) records the dependencies and donor audit for the default application.
+The geometric CodeStrike mark is the current app identity. Original CodeStrike and PWDS artwork remains at its existing paths. [Brand provenance](assets/branding/provenance.json) and [default-editor screenshot provenance](docs/SCREENSHOT_PROVENANCE.md) identify the preserved artwork. The editor candidate is based on pinned [Lapce v0.4.6](https://github.com/lapce/lapce/releases/tag/v0.4.6) under Apache-2.0; its license and source history remain in the submodule. [`THIRD_PARTY.md`](THIRD_PARTY.md) records the dependencies and donor audit for the default application.
 
 No first-party license grant is stated for this checkout. Binary distribution would need notices verified against its exact contents.
