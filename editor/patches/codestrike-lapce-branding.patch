@@ -1,16 +1,16 @@
-diff --git a/lapce-app/build.rs b/lapce-app/build.rs
+diff --git a/build.rs b/build.rs
 new file mode 100644
 --- /dev/null
-+++ b/lapce-app/build.rs
++++ b/build.rs
 @@ -0,0 +1,11 @@
 +// Root helper formatting is checked separately from Lapce's 85-column style.
-+#[path = "../../../build_support/windows_icon.rs"]
++#[path = "../../build_support/windows_icon.rs"]
 +#[rustfmt::skip]
 +mod windows_icon;
 +
 +fn main() {
 +    windows_icon::embed(
-+        "../../../assets/branding/CodeStrike-geometric.ico",
++        "../../assets/branding/CodeStrike-geometric.ico",
 +        "lapce",
 +    );
 +}
