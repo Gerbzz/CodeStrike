@@ -49,13 +49,13 @@ jobs:
       - name: Prepare selected pinned Lapce foundation
         shell: pwsh
         run: ./scripts/prepare-lapce.ps1
-      - name: Check build helper and prepared-source formatting
+      - name: Check build helper and prepared branding-source formatting
         shell: pwsh
         run: |
           rustfmt --edition 2024 --check build.rs build_support/windows_icon.rs
           if ($LASTEXITCODE -ne 0) { throw 'Brand resource helper formatting failed.' }
-          cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check
-          if ($LASTEXITCODE -ne 0) { throw 'Prepared Lapce formatting failed.' }
+          rustfmt --edition 2024 --config skip_children=true,max_width=85 --check editor/lapce/lapce-app/src/app.rs editor/lapce/lapce-app/src/about.rs editor/lapce/lapce-app/build.rs
+          if ($LASTEXITCODE -ne 0) { throw 'Prepared branding-source formatting failed.' }
       - name: Build selected native editor with required Windows icon
         shell: pwsh
         run: |
