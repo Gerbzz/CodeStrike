@@ -20,11 +20,25 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Install and identify the same local rust-analyzer
+      - name: Record the untouched hosted toolchain precondition
         shell: pwsh
         run: |
-          rustup component add rust-analyzer
-          if ($LASTEXITCODE -ne 0) { throw 'rust-analyzer installation failed' }
+          rustup show active-toolchain
+          rustup component list --installed
+          $sysroot = (& rustc --print sysroot).Trim()
+          "Original runner rust-src present: $(Test-Path (Join-Path $sysroot 'lib/rustlib/src/rust/library/std/src/io/mod.rs'))"
+      - name: Select the exact failing GUI toolchain without adding rust-src
+        shell: pwsh
+        run: |
+          # Match the failing image's minimal profile + rustfmt/clippy and Windows targets,
+          # then the GUI workflow's rust-analyzer/WASI additions. Preserve any existing rust-src.
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component rust-analyzer --target i686-pc-windows-msvc --target x86_64-pc-windows-gnu --target wasm32-wasip1 --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'The known failing toolchain could not be selected' }
+      - name: Verify the same local rust-analyzer and compiler
+        shell: pwsh
+        env:
+          RUSTUP_TOOLCHAIN: 1.99.1-x86_64-pc-windows-msvc
+        run: |
           $server = (& rust-analyzer --version).Trim()
           $compiler = (& rustc --version).Trim()
           $server
@@ -34,4 +48,6 @@ jobs:
           }
       - name: Record response, error and cancellation evidence for the unchanged public fixture
         shell: pwsh
+        env:
+          RUSTUP_TOOLCHAIN: 1.99.1-x86_64-pc-windows-msvc
         run: python scripts/diagnostics/rust_analyzer_stdio.py
