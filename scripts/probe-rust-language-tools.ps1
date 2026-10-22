@@ -124,6 +124,46 @@ function Get-ReadCompletion([string]$text, [string]$expectedUri) {
     return $false
 }
 
+function Write-LspProtocolEvidence([string]$text, [string]$expectedUri, [string]$phase) {
+    $parseFailures = 0
+    $messages = @($text -split "`n" | ForEach-Object {
+        $line = [regex]::Replace($_, '\x1B\[[0-?]*[ -/]*[@-~]', '')
+        if ($line -match '(?<direction>read from lsp|write to lsp):\s*(?<json>\{.*\})\s*$') {
+            $direction = $Matches.direction
+            try {
+                $message = $Matches.json | ConvertFrom-Json -ErrorAction Stop
+                $timestamp = if ($line -match '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z') { $Matches[0] } else { $null }
+                [pscustomobject]@{ Direction = $direction; Message = $message; Timestamp = $timestamp }
+            } catch { $parseFailures++ }
+        }
+    })
+    $requests = @($messages | Where-Object {
+        $_.Direction -eq 'write to lsp' -and $_.Message.method -eq 'textDocument/completion' -and
+        $_.Message.params.textDocument.uri -eq $expectedUri
+    })
+    $ids = @($requests | ForEach-Object { $_.Message.id })
+    $related = @($messages | Where-Object {
+        ($_.Message.method -eq 'textDocument/completion' -and $_.Message.params.textDocument.uri -eq $expectedUri) -or
+        ($_.Direction -eq 'read from lsp' -and $null -ne $_.Message.id -and $ids -contains $_.Message.id) -or
+        ($_.Message.method -eq '$/cancelRequest' -and $ids -contains $_.Message.params.id)
+    })
+    foreach ($entry in @($related | Select-Object -Last 30)) {
+        $message = $entry.Message
+        $items = if ($null -ne $message.result.items) { @($message.result.items) } elseif ($message.result -is [array]) { @($message.result) } else { @() }
+        $record = [ordered]@{
+            phase = $phase; timestamp = $entry.Timestamp; direction = $entry.Direction; method = $message.method; id = $message.id
+            uri = $message.params.textDocument.uri; position = $message.params.position
+            resultPresent = @($message.PSObject.Properties.Name) -contains 'result'; resultNull = $null -eq $message.result
+            itemCount = $items.Count; readPresent = @($items | Where-Object label -eq 'Read').Count -gt 0
+            labels = @($items | Select-Object -First 40 | ForEach-Object { ([string]$_.label).Substring(0, [Math]::Min(([string]$_.label).Length, 100)) })
+            errorCode = $message.error.code; errorMessage = ([string]$message.error.message).Substring(0, [Math]::Min(([string]$message.error.message).Length, 300))
+            cancelledId = $message.params.id; jsonKeys = @($message.PSObject.Properties.Name)
+        }
+        Write-Host "CODESTRIKE_LSP_PROTOCOL=$($record | ConvertTo-Json -Depth 8 -Compress)"
+    }
+    Write-Host "CODESTRIKE_LSP_PROTOCOL_SUMMARY=$([ordered]@{phase=$phase;parsedMessages=$messages.Count;parseFailures=$parseFailures;completionRequestIds=$ids;relatedMessages=$related.Count} | ConvertTo-Json -Compress)"
+}
+
 function Save-LspCapture([string]$marker) {
     [uint32]$windowProcessId = 0
     [CodeStrikeLspWindow]::GetWindowThreadProcessId($process.MainWindowHandle, [ref]$windowProcessId) | Out-Null
@@ -274,9 +314,21 @@ try {
         throw 'CodeStrike did not receive the expected Rust Read completion.'
     }
     'CODESTRIKE_LSP_COMPLETION=rust-read-passed'
+    try {
+        Write-LspProtocolEvidence $output $sourceUri 'after-accepted-gui-save-and-clean-exit'
+    } catch {
+        Write-Host "CODESTRIKE_LSP_PROTOCOL_CAPTURE_ERROR=$($_.Exception.Message.Substring(0, [Math]::Min($_.Exception.Message.Length, 300)))"
+    }
     $verified = $true
 } catch {
     $failure = $_
+    # Keep the actual response/null/error/cancellation observations before closing
+    # the app can cancel pending requests. This does not change acceptance.
+    try {
+        Write-LspProtocolEvidence $capture.Snapshot() $sourceUri 'failure-before-process-cleanup'
+    } catch {
+        Write-Host "CODESTRIKE_LSP_PROTOCOL_CAPTURE_ERROR=$($_.Exception.Message.Substring(0, [Math]::Min($_.Exception.Message.Length, 300)))"
+    }
     $process.Refresh()
     if (-not $process.HasExited) {
         try {
