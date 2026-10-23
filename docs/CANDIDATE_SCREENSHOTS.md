@@ -1,4 +1,6 @@
-# Editor candidate screenshot provenance
+# Historical editor candidate screenshot provenance
+
+These are earlier workflow captures, preserved as historical test evidence. The [current native branding candidate captures](NATIVE_BRANDING_CAPTURES.md) are the README showcase; they remain separate from the default root app.
 
 The full JPEG frames below are byte-for-byte copies from the **Lapce-based
 CodeStrike candidate** developed in PR [#1](https://github.com/Gerbzz/CodeStrike/pull/1).

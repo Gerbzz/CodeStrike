@@ -13,13 +13,13 @@
   </picture></a>
 </p>
 
-> **Windows engineering preview - source build only.** The default application is a working but limited native Rust editor. A more capable Lapce-based editor is included as a separately prepared [candidate](editor/UPSTREAM.md), developed in [PR #1](https://github.com/Gerbzz/CodeStrike/pull/1). Screenshots in the **Editor candidate** section show that candidate, not the default app. There is no CodeStrike installer or release yet.
+> **Windows engineering preview - source build only.** The default application is a working but limited native Rust editor. A more capable Lapce-based editor is included as a separately prepared [candidate](editor/UPSTREAM.md), developed in [PR #1](https://github.com/Gerbzz/CodeStrike/pull/1). Candidate screenshots below show that candidate, not the default app. There is no CodeStrike installer or release yet.
 
 <p align="center"><a href="#the-default-editor">Default editor</a> | <a href="#editor-candidate">Editor candidate</a> | <a href="#build-and-run">Build and run</a> | <a href="#status-and-roadmap">Status</a> | <a href="#source-and-attribution">Attribution</a></p>
 
-![The CodeStrike main-branch Windows editor with a self-authored Rust sample workspace](assets/screenshots/codestrike-editor.png)
+![CodeStrike Lapce branding candidate: genuine Windows startup with the geometric source-scope mark](assets/screenshots/codestrike-native-startup-2026-10-21.png)
 
-*The default application displaying a local Rust project. This retained, app-rendered capture does not claim that the visible Cargo controls were run; see [provenance](docs/SCREENSHOT_PROVENANCE.md).*
+*Lapce-based branding candidate at [`e61517b`](https://github.com/Gerbzz/CodeStrike/commit/e61517b15f09f6860a06595fda44ca73c87f8d68), captured from a native Windows build. This candidate is developed in [PR #8](https://github.com/Gerbzz/CodeStrike/pull/8); it is not the default root application or a released build. [Capture provenance and limits](docs/NATIVE_BRANDING_CAPTURES.md).*
 
 ## The default editor
 
@@ -35,11 +35,22 @@ CodeStrike checks the file on disk before saving, preserves a UTF-8 BOM and a co
 
 Search the selected workspace with literal or regex patterns; a result opens its file. **Check**, **Build**, and **Test** show the local Cargo command and working directory and run only when pressed. Cargo is invoked offline without shell interpolation. A chosen project's build scripts and procedural macros can still execute, as with a normal Cargo build.
 
-This default editor has **one active file**, no syntax coloring or line-number gutter, no result-to-caret navigation or replacement preview, and no verified language server, debugger, or accessibility pass. Its process controls are tested on Windows; non-Windows process execution currently refuses to start.
+This default editor has **one active file**, no syntax coloring or line-number gutter, no result-to-caret navigation or replacement preview, and no verified language server, debugger, or accessibility pass. Its process controls are tested on Windows; non-Windows process execution currently refuses to start. The [earlier default-editor image and provenance](docs/SCREENSHOT_PROVENANCE.md) are retained as historical evidence.
 
 ## Editor candidate
 
-The [Lapce-based CodeStrike candidate](editor/UPSTREAM.md) keeps the original repository, settings, and artwork while developing the fuller editor workflow. It requires [patch preparation](scripts/prepare-lapce.ps1) and an explicit build; the root application remains the default. The images below are app-window crops from the verified Windows runs listed in [screenshot provenance](docs/CANDIDATE_SCREENSHOTS.md); [evidence-only commit `bee871d`](https://github.com/Gerbzz/CodeStrike/commit/bee871db3ac79f2f6e54f062f0da0266884a6526) published the full captures and test notes. The editor pixels were not altered.
+The [Lapce-based CodeStrike candidate](editor/UPSTREAM.md) is a separately prepared editor with its own pinned source and [patch preparation](scripts/prepare-lapce.ps1). The root application remains the default. The current showcase uses unchanged native Windows captures from the branding candidate in [PR #8](https://github.com/Gerbzz/CodeStrike/pull/8), rather than the older workflow images below.
+
+![CodeStrike candidate native About view showing its geometric mark and retained Lapce and Codicons credits](assets/screenshots/codestrike-native-about-2026-10-21.png)
+
+*Native startup and About at commit `e61517b15f09f6860a06595fda44ca73c87f8d68`, captured by [run 39693959159](https://github.com/Gerbzz/CodeStrike/actions/runs/39693959159). The captures contain an empty editor and idle runner terminal, not a user project. They establish appearance for that candidate build, not editing, language-tool, taskbar or installed-app acceptance. [Original bytes, hashes and checks](docs/NATIVE_BRANDING_CAPTURES.md).*
+
+The candidate still needs crash-interruption and cross-session recovery tests, automatic cleanup of visible backups, broader search/replace cases, current-head language-tool verification, accessibility review, and clean-machine installation. It is not yet a distribution.
+
+<details>
+<summary>Historical candidate workflow screenshots</summary>
+
+These earlier images record specific tab/search/replace tests. They remain useful test evidence, but are not the current visual showcase or fresh acceptance of the branding candidate.
 
 ### Real tabs and a restorable session
 
@@ -57,7 +68,7 @@ The editor candidate has a bounded multi-file replacement flow: preview paths, p
 
 *Editor candidate, not the default application. [The checked Undo app-window crop](assets/screenshots/codestrike-candidate-undo-app.png) and [full original captures with hashes](docs/CANDIDATE_SCREENSHOTS.md) show the rest of this bounded test.*
 
-The candidate still needs crash-interruption and cross-session recovery tests, automatic cleanup of visible backups, broader search/replace cases, local language-tool verification, accessibility review, and clean-machine installation. It is not yet a distribution.
+</details>
 
 ## Build and run
 
@@ -98,7 +109,7 @@ This follows the [tested Windows workflow](.github/workflows/editor-candidate.ym
 | --- | --- | --- |
 | Local folders and files | Open, edit, guarded save; one active file | Three-tab save and reopen path verified on Windows |
 | Search and replacement | Workspace search and per-file commands | Exact hit caret, per-file Replace All, bounded two-file preview/Apply/Undo verified |
-| Language tooling | Explicit offline Cargo Check/Build/Test | Opt-in local rust-analyzer diagnostics, `Read` completion insertion/save, and a visible missing-server error verified in the candidate GUI on Windows; definition, code actions, and packaging pending |
+| Language tooling | Explicit offline Cargo Check/Build/Test | Earlier candidate Windows runs verified local rust-analyzer diagnostics, `Read` completion insertion/save and a visible missing-server error. These appearance captures do not revalidate language tools; current-head verification, definition, code actions and packaging remain separate gates |
 | Distribution | Source build on Windows | Source build and CI only; no installer or release |
 
 The [candidate acceptance matrix](docs/migration/ACCEPTANCE.md) records the tested cases and open gates. CodeStrike is still an engineering preview, not a VS Code replacement ready for everyday professional work.
