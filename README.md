@@ -13,33 +13,17 @@
   </picture></a>
 </p>
 
-> **Windows engineering preview - source build only.** The default application is a working but limited native Rust editor. A more capable Lapce-based editor is included as a separately prepared [candidate](editor/UPSTREAM.md), developed in [PR #1](https://github.com/Gerbzz/CodeStrike/pull/1). Candidate screenshots below show that candidate, not the default app. There is no CodeStrike installer or release yet.
+> **Lapce-only engineering preview — source build only.** CodeStrike now uses the preserved, patched Lapce editor as its only application. The pre-Lapce desktop is retired. Existing Lapce customizations and analyzer work remain intact; this cutover does not claim DeltaDB integration, a new UI, an installer or a release.
 
-<p align="center"><a href="#the-default-editor">Default editor</a> | <a href="#editor-candidate">Editor candidate</a> | <a href="#build-and-run">Build and run</a> | <a href="#status-and-roadmap">Status</a> | <a href="#source-and-attribution">Attribution</a></p>
+<p align="center"><a href="#editor">Editor</a> | <a href="#build-and-run">Build and run</a> | <a href="#status-and-roadmap">Status</a> | <a href="#source-and-attribution">Attribution</a></p>
 
 ![CodeStrike Lapce branding candidate: genuine Windows startup with the geometric source-scope mark](assets/screenshots/codestrike-native-startup-2026-10-21.png)
 
-*Lapce-based branding candidate at [`e61517b`](https://github.com/Gerbzz/CodeStrike/commit/e61517b15f09f6860a06595fda44ca73c87f8d68), captured from a native Windows build. This candidate is developed in [PR #8](https://github.com/Gerbzz/CodeStrike/pull/8); it is not the default root application or a released build. [Capture provenance and limits](docs/NATIVE_BRANDING_CAPTURES.md).*
+*Lapce-based branding candidate at [`e61517b`](https://github.com/Gerbzz/CodeStrike/commit/e61517b15f09f6860a06595fda44ca73c87f8d68), captured from a native Windows build. This candidate is developed in [PR #8](https://github.com/Gerbzz/CodeStrike/pull/8); it predates this Lapce-only routing change and is not a released build. [Capture provenance and limits](docs/NATIVE_BRANDING_CAPTURES.md).*
 
-## The default editor
+## Editor
 
-### Work in your own folders
-
-Open a local folder, browse its files, and edit a UTF-8 source file. The interface shows the selected workspace, active file, dirty state, search results, and command output. The command-line companion can inspect status, insert text, search a workspace, and request explicit local Cargo checks.
-
-### Save with a way back
-
-CodeStrike checks the file on disk before saving, preserves a UTF-8 BOM and a consistent newline style, and writes a recovery snapshot after edits. Undo and Redo operate on the source model. Unsupported input, including invalid UTF-8, NUL-containing files, mixed newlines, and files over 20 MiB, opens read-only rather than being silently rewritten.
-
-### Search, then choose what runs
-
-Search the selected workspace with literal or regex patterns; a result opens its file. **Check**, **Build**, and **Test** show the local Cargo command and working directory and run only when pressed. Cargo is invoked offline without shell interpolation. A chosen project's build scripts and procedural macros can still execute, as with a normal Cargo build.
-
-This default editor has **one active file**, no syntax coloring or line-number gutter, no result-to-caret navigation or replacement preview, and no verified language server, debugger, or accessibility pass. Its process controls are tested on Windows; non-Windows process execution currently refuses to start. The [earlier default-editor image and provenance](docs/SCREENSHOT_PROVENANCE.md) are retained as historical evidence.
-
-## Editor candidate
-
-The [Lapce-based CodeStrike candidate](editor/UPSTREAM.md) is a separately prepared editor with its own pinned source and [patch preparation](scripts/prepare-lapce.ps1). The root application remains the default. The current showcase uses unchanged native Windows captures from the branding candidate in [PR #8](https://github.com/Gerbzz/CodeStrike/pull/8), rather than the older workflow images below.
+CodeStrike is the [pinned Lapce-based editor](editor/UPSTREAM.md), with the existing CodeStrike patch, guarded-save and workspace replacement improvements. It is not a new editor rewrite. The retained images document their original source revisions, not fresh acceptance of every subsequent commit.
 
 ![CodeStrike candidate native About view showing its geometric mark and retained Lapce and Codicons credits](assets/screenshots/codestrike-native-about-2026-10-21.png)
 
@@ -58,7 +42,7 @@ Three distinct source files were edited and saved, the app closed, and the same 
 
 ![App-window crop of three tabs in the CodeStrike editor candidate](assets/screenshots/codestrike-candidate-tabs-app.png)
 
-*Editor candidate, not the default application. [Full original capture and crop provenance](docs/CANDIDATE_SCREENSHOTS.md).*
+*Historical Lapce-based CodeStrike capture. [Full original capture and crop provenance](docs/CANDIDATE_SCREENSHOTS.md).*
 
 ### Preview a workspace change before writing
 
@@ -66,37 +50,20 @@ The editor candidate has a bounded multi-file replacement flow: preview paths, p
 
 ![App-window crop of the two-file workspace replacement preview in the editor candidate](assets/screenshots/codestrike-candidate-replace-preview-app.png)
 
-*Editor candidate, not the default application. [The checked Undo app-window crop](assets/screenshots/codestrike-candidate-undo-app.png) and [full original captures with hashes](docs/CANDIDATE_SCREENSHOTS.md) show the rest of this bounded test.*
+*Historical Lapce-based CodeStrike capture. [The checked Undo app-window crop](assets/screenshots/codestrike-candidate-undo-app.png) and [full original captures with hashes](docs/CANDIDATE_SCREENSHOTS.md) show the rest of this bounded test.*
 
 </details>
 
 ## Build and run
 
-### Default Windows preview
-
-Install a Rust toolchain with Cargo, then from PowerShell:
-
-```powershell
-git clone https://github.com/Gerbzz/CodeStrike.git
-cd CodeStrike
-$env:CARGO_BUILD_JOBS = '1'
-cargo test --locked --features desktop
-cargo run --locked --features desktop --bin codestrike-desktop
-```
-
-Use **Open folder** and select a source file in Explorer, or choose **Open file**. Ctrl+S saves after the disk-version check. The first build needs dependency registry access; after dependencies are cached, Cargo's `--offline` flag is available. No prebuilt installer is published.
-
-For the source CLI, run `cargo run --locked --bin codestrike -- --help`. Commands include `status`, `insert`, `find`, `replace`, `regex`, `recover`, `check`, `build`, and `test`. Workspace search scans at most 100 MiB and returns at most 500 hits. Cargo output has a ten-minute timeout and a 4 MiB cap per stream.
-
-### Editor candidate from source
+### Windows source build
 
 The candidate has its own pinned Lapce submodule and patch. On Windows, start with a fresh checkout and enough disk space for a Rust GUI build:
 
 ```powershell
-git -c core.autocrlf=false clone --recurse-submodules https://github.com/Gerbzz/CodeStrike.git CodeStrike-candidate
-cd CodeStrike-candidate
-pwsh -File .\scripts\prepare-lapce.ps1
-cargo build --manifest-path .\editor\lapce\Cargo.toml --locked --bin lapce
+git -c core.autocrlf=false clone --recurse-submodules https://github.com/Gerbzz/CodeStrike.git CodeStrike
+cd CodeStrike
+pwsh -File .\scripts\build-codestrike.ps1
 Copy-Item .\editor\lapce\target\debug\lapce.exe .\editor\lapce\target\debug\CodeStrike.exe
 .\editor\lapce\target\debug\CodeStrike.exe --wait
 ```
@@ -105,17 +72,21 @@ This follows the [tested Windows workflow](.github/workflows/editor-candidate.ym
 
 ## Status and roadmap
 
-| Area | Default editor | Editor candidate |
-| --- | --- | --- |
-| Local folders and files | Open, edit, guarded save; one active file | Three-tab save and reopen path verified on Windows |
-| Search and replacement | Workspace search and per-file commands | Exact hit caret, per-file Replace All, bounded two-file preview/Apply/Undo verified |
-| Language tooling | Explicit offline Cargo Check/Build/Test | Earlier candidate Windows runs verified local rust-analyzer diagnostics, `Read` completion insertion/save and a visible missing-server error. These appearance captures do not revalidate language tools; current-head verification, definition, code actions and packaging remain separate gates |
-| Distribution | Source build on Windows | Source build and CI only; no installer or release |
+| Area | Lapce-based CodeStrike |
+| --- | --- |
+| Files, tabs, search and replacement | Existing candidate implementation preserved; exact historical test evidence below and in the acceptance matrix |
+| Language tooling | Reviewed analyzer source and probes preserved; packaging and current-head acceptance remain separate gates |
+| Delta/DeltaDB and collaboration | Existing agent donor branch preserved; integration and licensing verification are separate work, not delivered by this cutover |
+| Distribution | Source build only; no installer or release |
+
+`cargo run --locked --bin codestrike -- <editor arguments>` delegates only to the prepared debug Lapce executable. It fails clearly if that executable has not been built. Set `CODESTRIKE_EDITOR` to an explicit release/custom build path if needed. Arguments are passed directly, never through a shell.
+
+The root Rust library remains a tested developer support component, not another editor. Its preserved CLI is explicitly named `codestrike-core-tool` (`cargo run --locked --bin codestrike-core-tool -- ...`). See [cutover and preservation audit](docs/migration/LAPCE_ONLY.md).
 
 The [candidate acceptance matrix](docs/migration/ACCEPTANCE.md) records the tested cases and open gates. CodeStrike is still an engineering preview, not a VS Code replacement ready for everyday professional work.
 
 ## Source and attribution
 
-The original CodeStrike and PWDS artwork above is retained. [Brand provenance](assets/branding/provenance.json) and [default-editor screenshot provenance](docs/SCREENSHOT_PROVENANCE.md) identify those assets. The editor candidate is based on pinned [Lapce v0.4.6](https://github.com/lapce/lapce/releases/tag/v0.4.6) under Apache-2.0; its license and source history remain in the submodule. [`THIRD_PARTY.md`](THIRD_PARTY.md) records the dependencies and donor audit for the default application.
+The original CodeStrike and PWDS artwork above is retained. [Brand provenance](assets/branding/provenance.json) and [default-editor screenshot provenance](docs/SCREENSHOT_PROVENANCE.md) identify those assets. The editor candidate is based on pinned [Lapce v0.4.6](https://github.com/lapce/lapce/releases/tag/v0.4.6) under Apache-2.0; its license and source history remain in the submodule. [`THIRD_PARTY.md`](THIRD_PARTY.md) records the dependencies and donor audit and retained support library.
 
 No first-party license grant is stated for this checkout. Binary distribution would need notices verified against its exact contents.

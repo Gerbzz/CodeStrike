@@ -98,6 +98,9 @@ public static class CodeStrikeWindowProbe {
                     [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
                 $thumbnail.Save($stream, $codec, $parameters)
                 if ($stream.Length -gt 350KB) { throw 'Screenshot exceeded the bounded log size.' }
+                $evidence = Join-Path $PSScriptRoot '../artifacts/lapce-native'
+                New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+                [IO.File]::WriteAllBytes((Join-Path $evidence "$mode.jpg"), $stream.ToArray())
                 "CODESTRIKE_SCREENSHOT_${mode}_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
             } finally { $stream.Dispose() }
         } finally { $thumbnail.Dispose() }

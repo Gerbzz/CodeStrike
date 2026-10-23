@@ -1,14 +1,20 @@
-name: CodeStrike editor candidate
+name: CodeStrike Lapce editor
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
-    branches: [draft/lapce-foundation-migration]
+    branches: [main]
     paths:
       - .github/workflows/editor-candidate.yml
       - .gitmodules
       - editor/**
       - scripts/prepare-lapce.ps1
+      - scripts/build-codestrike.ps1
+      - src/main.rs
+      - Cargo.toml
+      - scripts/tests/**
       - scripts/probe-windows-editor.ps1
       - scripts/probe-editor-acceptance.ps1
 
@@ -16,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: codestrike-editor-candidate
+  group: codestrike-editor-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -112,3 +118,13 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario CleanReload
+
+      - name: Upload genuine native acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codestrike-lapce-native-evidence
+          path: |
+            artifacts/**
+            editor/lapce/target/debug/*.png
+          if-no-files-found: warn

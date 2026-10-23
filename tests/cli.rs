@@ -2,7 +2,7 @@ use std::process::Command;
 
 #[test]
 fn command_line_edits_saves_and_finds_source() {
-    let exe = env!("CARGO_BIN_EXE_codestrike");
+    let exe = env!("CARGO_BIN_EXE_codestrike-core-tool");
     let root = std::env::temp_dir().join(format!("codestrike-cli-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
