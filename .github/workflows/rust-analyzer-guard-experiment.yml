@@ -1,0 +1,79 @@
+name: CodeStrike pinned analyzer guard experiment
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/rust-analyzer-guard-experiment.yml
+      - scripts/probe-ra-guard-source.py
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-analyzer-guard:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      CFG_RELEASE: "1.99.0"
+      CFG_RELEASE_CHANNEL: stable
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - name: Checkout fixture-only probe
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/probe-standalone-rust-analyzer.py
+            scripts/probe-ra-guard-source.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Checkout pinned official analyzer source
+        uses: actions/checkout@v4
+        with:
+          repository: rust-lang/rust
+          ref: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+          path: pinned-rust
+          sparse-checkout: src/tools/rust-analyzer
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+      - name: Verify provenance and resource bounds
+        shell: pwsh
+        run: |
+          $sourceHead = git -C pinned-rust rev-parse HEAD
+          if ($sourceHead -ne 'b940084d7eb6a299eb4bfeb8e34901bc051e7ac4') {
+            throw "Official analyzer source differs from pinned Rust 1.99.0: $sourceHead"
+          }
+          $compiler = rustc --version
+          if ($compiler -notmatch '^rustc 1\.99\.0 \(b940084d7 ') {
+            throw "Hosted compiler differs from pinned analyzer release: $compiler"
+          }
+          $freeGiB = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+          if ($freeGiB -lt 15) { throw "Hosted runner has only $freeGiB GiB free before build" }
+          "CODESTRIKE_GUARD_SOURCE=$sourceHead;rustc:$compiler;freeGiB:$freeGiB"
+          python scripts/probe-standalone-rust-analyzer.py --self-test
+          python scripts/probe-ra-guard-source.py --self-test
+      - name: Instrument only the disposable official source checkout
+        shell: pwsh
+        run: |
+          python scripts/probe-ra-guard-source.py --instrument pinned-rust
+          if ($LASTEXITCODE -ne 0) { throw 'Guard instrumentation failed' }
+          git -C pinned-rust diff --check
+          git -C pinned-rust diff -- src/tools/rust-analyzer/crates/rust-analyzer/src/main_loop.rs
+      - name: Build one analyzer binary for both cases
+        shell: pwsh
+        timeout-minutes: 24
+        run: |
+          cargo build --locked --manifest-path pinned-rust/src/tools/rust-analyzer/Cargo.toml -p rust-analyzer --bin rust-analyzer
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned analyzer build failed' }
+          $freeGiB = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+          if ($freeGiB -lt 8) { throw "Hosted runner has only $freeGiB GiB free after build" }
+          "CODESTRIKE_GUARD_BUILD_FREE_GIB=$freeGiB"
+      - name: Compare identical fixture sequence after the same readiness barrier
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $analyzer = (Resolve-Path 'pinned-rust/src/tools/rust-analyzer/target/debug/rust-analyzer.exe').Path
+          python scripts/probe-ra-guard-source.py --compare scripts/probe-standalone-rust-analyzer.py $analyzer
+          if ($LASTEXITCODE -ne 0) { throw 'Guard experiment did not complete' }
