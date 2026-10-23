@@ -9,10 +9,13 @@ permissions:
 jobs:
   contracts:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Preserve exact source bytes
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

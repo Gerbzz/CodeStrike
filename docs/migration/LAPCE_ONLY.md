@@ -23,3 +23,7 @@ No Delta-named public branch was found in the branch inventory. This does not es
 The existing editor workflow now runs for main pull requests, retaining all save/conflict/replacement/tab/search/encoding/reload acceptance steps. Its concurrency group is per PR/ref, not a suite-wide build slot. Separate cutover CI tests source preservation and launcher delegation. Native build/runtime results must be checked on the exact PR head before merge.
 
 `BASELINE.sha256` and `verify-baseline.ps1` describe the historical predecessor snapshot, not the current product. They are retained as history, not used as the cutover acceptance gate. `scripts/tests/test_lapce_cutover.py` checks the preserved donors against the exact cutover base.
+
+## Hosted check repair
+
+The preserved source declares Rust `stable` and rustfmt max_width=85. Stable1.99.1 exposed pre-existing formatting failures in two donor files. A separate `codestrike-format.patch`, generated solely by that formatter, is applied after the original unchanged patch. It adjusts whitespace/trailing commas and removes redundant braces around one single-expression closure; it is not claimed to be literally token-identical. Both versions canonicalize to identical rustfmt output. The original substantive tests and formatting gate remain required. Windows contract checkout disables CRLF conversion to preserve exact source bytes; independent matrix jobs no longer cancel one another.

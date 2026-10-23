@@ -18,10 +18,10 @@ class Launcher(unittest.TestCase):
     def tearDownClass(cls): cls.temp.cleanup()
     def test_exact_argument_and_status_forwarding(self):
         args=['folder with spaces', 'semi;colon', '$(not-a-command)', 'café']
-        p=subprocess.run([str(self.launcher),*args],env=dict(os.environ,CODESTRIKE_EDITOR=str(self.editor)),text=True,capture_output=True)
+        p=subprocess.run([str(self.launcher),*args],env=dict(os.environ,CODESTRIKE_EDITOR=str(self.editor)),text=True,encoding="utf-8",capture_output=True)
         self.assertEqual(p.returncode,7); self.assertEqual(p.stdout.splitlines(),args)
     def test_missing_editor_fails_without_fallback(self):
         env=dict(os.environ); env.pop('CODESTRIKE_EDITOR',None)
-        p=subprocess.run([str(self.launcher)],env=env,text=True,capture_output=True)
+        p=subprocess.run([str(self.launcher)],env=env,text=True,encoding="utf-8",capture_output=True)
         self.assertNotEqual(p.returncode,0); self.assertIn('scripts/build-codestrike.ps1',p.stderr)
 if __name__=='__main__': unittest.main()

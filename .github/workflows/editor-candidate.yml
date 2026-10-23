@@ -11,6 +11,7 @@ on:
       - .gitmodules
       - editor/**
       - scripts/prepare-lapce.ps1
+      - scripts/prepare-lapce-format.ps1
       - scripts/build-codestrike.ps1
       - src/main.rs
       - Cargo.toml
@@ -59,6 +60,9 @@ jobs:
       - name: Prepare local CodeStrike candidate
         shell: pwsh
         run: .\scripts\prepare-lapce.ps1
+      - name: Apply formatting-only overlay without replacing donor patch
+        shell: pwsh
+        run: .\scripts\prepare-lapce-format.ps1
       - name: Verify formatting
         shell: pwsh
         run: cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check

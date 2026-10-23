@@ -1,0 +1,135 @@
+--- a/lapce-app/src/panel/global_search_view.rs
++++ b/lapce-app/src/panel/global_search_view.rs
+@@ -150,23 +150,25 @@
+     let replacement_input_id = replacement_input.id();
+ 
+     stack((
+-        button(stack((
+-            svg(move || {
+-                config.get().ui_svg(if expanded.get() {
+-                    LapceIcons::ITEM_OPENED
+-                } else {
+-                    LapceIcons::ITEM_CLOSED
++        button(
++            stack((
++                svg(move || {
++                    config.get().ui_svg(if expanded.get() {
++                        LapceIcons::ITEM_OPENED
++                    } else {
++                        LapceIcons::ITEM_CLOSED
++                    })
+                 })
+-            })
+-            .style(move |s| {
+-                let size = config.get().ui.icon_size() as f32;
+-                s.size(size, size)
+-                    .min_size(size, size)
+-                    .color(config.get().color(LapceColor::LAPCE_ICON_ACTIVE))
+-            }),
+-            label(|| "Workspace replace".to_string()),
+-        ))
+-        .style(|s| s.items_center().gap(6.0)))
++                .style(move |s| {
++                    let size = config.get().ui.icon_size() as f32;
++                    s.size(size, size)
++                        .min_size(size, size)
++                        .color(config.get().color(LapceColor::LAPCE_ICON_ACTIVE))
++                }),
++                label(|| "Workspace replace".to_string()),
++            ))
++            .style(|s| s.items_center().gap(6.0)),
++        )
+         .action(move || {
+             expanded.update(|open| *open = !*open);
+             if expanded.get_untracked() {
+@@ -185,8 +187,9 @@
+                     )
+                 })
+                 .focus_visible(|s| {
+-                    s.border(1.0)
+-                        .border_color(config.get().color(LapceColor::LAPCE_ICON_ACTIVE))
++                    s.border(1.0).border_color(
++                        config.get().color(LapceColor::LAPCE_ICON_ACTIVE),
++                    )
+                 })
+         }),
+         stack((
+@@ -247,20 +250,26 @@
+                                 .path
+                                 .strip_prefix(&plan.root)
+                                 .unwrap_or(&file.path);
+-                            rows.push((true, format!(
+-                                "{} ({} matches)",
+-                                relative.display(),
+-                                file.matches.len()
+-                            )));
++                            rows.push((
++                                true,
++                                format!(
++                                    "{} ({} matches)",
++                                    relative.display(),
++                                    file.matches.len()
++                                ),
++                            ));
+                             for found in &file.matches {
+-                                rows.push((false, format!(
+-                                    "  {}:{}  {:?} => {:?}  | {}",
+-                                    found.line,
+-                                    found.column + 1,
+-                                    found.found,
+-                                    found.replacement,
+-                                    found.context,
+-                                )));
++                                rows.push((
++                                    false,
++                                    format!(
++                                        "  {}:{}  {:?} => {:?}  | {}",
++                                        found.line,
++                                        found.column + 1,
++                                        found.found,
++                                        found.replacement,
++                                        found.context,
++                                    ),
++                                ));
+                             }
+                         }
+                         rows.into_iter().enumerate().collect::<Vec<_>>()
+@@ -274,9 +283,11 @@
+                                 .padding_vert(if is_file { 5.0 } else { 3.0 })
+                                 .padding_left(if is_file { 6.0 } else { 12.0 })
+                                 .apply_if(is_file, |s| {
+-                                    s.font_bold().background(config.get().color(
+-                                        LapceColor::PANEL_HOVERED_BACKGROUND,
+-                                    ))
++                                    s.font_bold().background(
++                                        config.get().color(
++                                            LapceColor::PANEL_HOVERED_BACKGROUND,
++                                        ),
++                                    )
+                                 })
+                         })
+                     },
+@@ -292,10 +303,7 @@
+                 .flex_grow(1.0)
+                 .min_height(0.0)
+         })
+-        .style(move |s| {
+-            s.width_pct(100.0)
+-                .apply_if(!expanded.get(), |s| s.hide())
+-        }),
++        .style(move |s| s.width_pct(100.0).apply_if(!expanded.get(), |s| s.hide())),
+     ))
+     .style(move |s| {
+         s.width_pct(100.0)
+--- a/lapce-proxy/src/plugin/psp.rs
++++ b/lapce-proxy/src/plugin/psp.rs
+@@ -1128,8 +1128,7 @@
+                         params.server_args,
+                         params.options,
+                     ) {
+-                        let failure_message =
+-                            "Local language server unavailable. Check its path in workspace settings.";
++                        let failure_message = "Local language server unavailable. Check its path in workspace settings.";
+                         tracing::error!("{failure_message}: {err:?}");
+                         core_rpc.show_message(
+                             failure_title,
