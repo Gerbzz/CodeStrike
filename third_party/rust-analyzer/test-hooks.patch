@@ -1,0 +1,108 @@
+--- production/crates/rust-analyzer/src/diagnostics.rs
++++ test-only/crates/rust-analyzer/src/diagnostics.rs
+@@ -611,6 +611,17 @@
+ ) -> ide::Cancellable<Vec<(FileId, Vec<lsp_types::Diagnostic>)>> {
+     let _p = tracing::info_span!("fetch_native_diagnostics").entered();
+     let _ctx = DbPanicContext::enter("fetch_native_diagnostics".to_owned());
++    let kind_name = match &kind {
++        NativeDiagnosticsFetchKind::Syntax => "syntax",
++        NativeDiagnosticsFetchKind::Semantic => "semantic",
++    };
++    if let Some(dir) = std::env::var_os("RA_TEST_CANCEL_ACK_DIR") {
++        let _ = std::fs::write(
++            std::path::PathBuf::from(dir)
++                .join(format!("slice-{kind_name}-{}-{}", slice.start, slice.end)),
++            b"observed",
++        );
++    }
+ 
+     // the diagnostics produced may point to different files not requested by the concrete request,
+     // put those into here and filter later
+@@ -619,6 +630,27 @@
+         .iter()
+         .copied()
+         .map(|file_id| {
++            static CANCEL_ATTEMPTS: std::sync::atomic::AtomicUsize =
++                std::sync::atomic::AtomicUsize::new(0);
++            if snapshot.file_version(file_id) == Some(3)
++                && std::env::var("RA_TEST_CANCEL_MODE").as_deref() == Ok(kind_name)
++            {
++                let attempt = CANCEL_ATTEMPTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
++                if let Some(dir) = std::env::var_os("RA_TEST_CANCEL_ACK_DIR") {
++                    let _ = std::fs::write(
++                        std::path::PathBuf::from(dir)
++                            .join(format!("attempt-{kind_name}-{attempt}")),
++                        format!("file={file_id:?}"),
++                    );
++                }
++                let limit = std::env::var("RA_TEST_CANCEL_COUNT")
++                    .ok()
++                    .and_then(|it| it.parse::<usize>().ok())
++                    .unwrap_or(0);
++                if attempt <= limit {
++                    return Err(ide_db::base_db::salsa::Cancelled::PendingWrite);
++                }
++            }
+             let line_index = snapshot.file_line_index(file_id)?;
+             let source_root = snapshot.analysis.source_root_id(file_id)?;
+             let config = &snapshot.config.diagnostics(Some(source_root));
+--- production/crates/rust-analyzer/src/flycheck.rs
++++ test-only/crates/rust-analyzer/src/flycheck.rs
+@@ -269,7 +269,20 @@
+         mem_docs: MemDocs,
+     ) {
+         if self.latest_request.fetch_max(generation, Ordering::SeqCst) > generation {
++            if let Some(dir) = std::env::var_os("RA_DELAY_FIRST_SAVE_RESTART_DIR") {
++                let dir = std::path::PathBuf::from(dir);
++                if dir.join("resumed").exists() {
++                    let _ =
++                        std::fs::write(dir.join("postrelease-rejected"), generation.to_string());
++                }
++            }
+             return;
++        }
++        if let Some(dir) = std::env::var_os("RA_DELAY_FIRST_SAVE_RESTART_DIR") {
++            let dir = std::path::PathBuf::from(dir);
++            if dir.join("resumed").exists() {
++                let _ = std::fs::write(dir.join("postrelease-accepted"), generation.to_string());
++            }
+         }
+         self.sender
+             .send(StateChange::Restart {
+@@ -614,6 +627,12 @@
+                 Event::RequestStateChange(StateChange::Cancel { generation }) => {
+                     if generation < self.latest_request.load(Ordering::SeqCst) {
+                         continue;
++                    }
++                    if let Some(dir) = std::env::var_os("RA_DELAY_FIRST_SAVE_RESTART_DIR") {
++                        let _ = std::fs::write(
++                            std::path::PathBuf::from(dir).join("cancel-processed"),
++                            generation.to_string(),
++                        );
+                     }
+                     tracing::debug!(flycheck_id = self.id, "flycheck cancelled");
+                     self.cancel_check_process();
+--- production/crates/rust-analyzer/src/handlers/notification.rs
++++ test-only/crates/rust-analyzer/src/handlers/notification.rs
+@@ -386,6 +386,21 @@
+                         // like std::sync::Arc's.
+                         let once_flychecks = once_flychecks;
+                         let saved_file = vfs_path.as_path().map(ToOwned::to_owned);
++                        if let Some(dir) = std::env::var_os("RA_DELAY_FIRST_SAVE_RESTART_DIR") {
++                            static FIRST: std::sync::atomic::AtomicBool =
++                                std::sync::atomic::AtomicBool::new(true);
++                            if FIRST.swap(false, std::sync::atomic::Ordering::SeqCst) {
++                                let dir = std::path::PathBuf::from(dir);
++                                let _ = std::fs::write(dir.join("ready"), b"ready");
++                                for _ in 0..600 {
++                                    if dir.join("release").exists() {
++                                        break;
++                                    }
++                                    std::thread::sleep(std::time::Duration::from_millis(100));
++                                }
++                                let _ = std::fs::write(dir.join("resumed"), b"resumed");
++                            }
++                        }
+                         if let Some(flycheck) = once_flychecks.0.first() {
+                             flycheck.restart_workspace_reserved(
+                                 reservations[&flycheck.id()],

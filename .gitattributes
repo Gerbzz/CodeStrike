@@ -1,1 +1,2 @@
 editor/patches/codestrike-lapce.patch text eol=lf
+third_party/rust-analyzer/*.patch text eol=lf -whitespace

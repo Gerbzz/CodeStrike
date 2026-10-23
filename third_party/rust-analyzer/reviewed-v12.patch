@@ -1,0 +1,1776 @@
+diff --git a/crates/rust-analyzer/src/diagnostics.rs b/crates/rust-analyzer/src/diagnostics.rs
+index fdeb75bce..e09052e63 100644
+--- a/crates/rust-analyzer/src/diagnostics.rs
++++ b/crates/rust-analyzer/src/diagnostics.rs
+@@ -10,10 +10,11 @@ use rustc_hash::FxHashSet;
+ use smallvec::SmallVec;
+ use stdx::iter_eq_by;
+ use triomphe::Arc;
++use vfs::VfsPath;
+ 
+ use crate::{
+     flycheck::PackageSpecifier, global_state::GlobalStateSnapshot, lsp, lsp_ext,
+-    main_loop::DiagnosticsTaskKind,
++    main_loop::DiagnosticsTaskKind, mem_docs::DocumentData,
+ };
+ 
+ pub(crate) type CheckFixes =
+@@ -28,6 +29,7 @@ pub struct DiagnosticsMapConfig {
+ }
+ 
+ pub(crate) type DiagnosticsGeneration = usize;
++pub(crate) type NativeDiagnosticsResult = (FileId, Arc<DocumentData>, Vec<lsp_types::Diagnostic>);
+ 
+ #[derive(Debug, Clone, Default)]
+ pub(crate) struct WorkspaceFlycheckDiagnostic {
+@@ -44,11 +46,12 @@ pub(crate) struct PackageFlycheckDiagnostic {
+ pub(crate) struct DiagnosticCollection {
+     // FIXME: should be FxHashMap<FileId, Vec<ra_id::Diagnostic>>
+     pub(crate) native_syntax:
+-        FxHashMap<FileId, (DiagnosticsGeneration, Vec<lsp_types::Diagnostic>)>,
++        FxHashMap<FileId, (DiagnosticsGeneration, Arc<DocumentData>, Vec<lsp_types::Diagnostic>)>,
+     pub(crate) native_semantic:
+-        FxHashMap<FileId, (DiagnosticsGeneration, Vec<lsp_types::Diagnostic>)>,
++        FxHashMap<FileId, (DiagnosticsGeneration, Arc<DocumentData>, Vec<lsp_types::Diagnostic>)>,
+     pub(crate) check: Vec<WorkspaceFlycheckDiagnostic>,
+     pub(crate) check_fixes: CheckFixes,
++    check_ignored_until: FxHashMap<FileId, DiagnosticsGeneration>,
+     changes: FxHashSet<FileId>,
+     /// Counter for supplying a new generation number for diagnostics.
+     /// This is used to keep track of when to clear the diagnostics for a given file as we compute
+@@ -152,6 +155,67 @@ impl DiagnosticCollection {
+         self.changes.insert(file_id);
+     }
+ 
++    pub(crate) fn advance_native_document(
++        &mut self,
++        file_id: FileId,
++        previous: &Arc<DocumentData>,
++        current: Arc<DocumentData>,
++    ) {
++        let generation = self.next_generation();
++        for target in [&mut self.native_syntax, &mut self.native_semantic] {
++            if let Some((stored_generation, document, _)) = target.get_mut(&file_id)
++                && Arc::ptr_eq(document, previous)
++            {
++                *stored_generation = generation;
++                *document = current.clone();
++                self.changes.insert(file_id);
++            }
++        }
++    }
++
++    pub(crate) fn invalidate_check_for_file(
++        &mut self,
++        file_id: FileId,
++        generation: DiagnosticsGeneration,
++        path: &VfsPath,
++    ) {
++        let ignored = self.check_ignored_until.entry(file_id).or_default();
++        *ignored = (*ignored).max(generation);
++        let mut changed = false;
++        for check in &mut self.check {
++            for package in check.per_package.values_mut() {
++                changed |= package.per_file.remove(&file_id).is_some();
++            }
++        }
++        for check_fixes in Arc::make_mut(&mut self.check_fixes).iter_mut() {
++            for package in check_fixes.values_mut() {
++                changed |= package.remove(&file_id).is_some();
++                for (fix_file_id, fixes) in package.iter_mut() {
++                    let before = fixes.len();
++                    fixes.retain(|fix| {
++                        !fix.action
++                            .edit
++                            .as_ref()
++                            .and_then(|edit| edit.changes.as_ref())
++                            .is_some_and(|changes| {
++                                changes.keys().any(|uri| {
++                                    lsp::from_proto::vfs_path(uri)
++                                        .is_ok_and(|target| &target == path)
++                                })
++                            })
++                    });
++                    if fixes.len() != before {
++                        self.changes.insert(*fix_file_id);
++                        changed = true;
++                    }
++                }
++            }
++        }
++        if changed {
++            self.changes.insert(file_id);
++        }
++    }
++
+     pub(crate) fn add_check_diagnostic(
+         &mut self,
+         flycheck_id: usize,
+@@ -161,6 +225,9 @@ impl DiagnosticCollection {
+         diagnostic: lsp_types::Diagnostic,
+         fix: Option<Box<Fix>>,
+     ) {
++        if self.check_ignored_until.get(&file_id).is_some_and(|&ignored| generation <= ignored) {
++            return;
++        }
+         if self.check.len() <= flycheck_id {
+             self.check.resize_with(flycheck_id + 1, WorkspaceFlycheckDiagnostic::default);
+         }
+@@ -208,20 +275,32 @@ impl DiagnosticCollection {
+             }
+         };
+ 
+-        for (file_id, mut diagnostics) in diagnostics {
++        for (file_id, document, mut diagnostics) in diagnostics {
+             diagnostics.sort_by_key(|it| (it.range.start, it.range.end));
+ 
+-            if let Some((old_gen, existing_diagnostics)) = target.get_mut(&file_id) {
++            if let Some((old_gen, old_document, existing_diagnostics)) = target.get_mut(&file_id) {
++                // A completed snapshot must not restore diagnostics from an older document.
++                if generation != 0 && generation < *old_gen {
++                    continue;
++                }
++                let same_document = Arc::ptr_eq(&document, old_document);
+                 if existing_diagnostics.len() == diagnostics.len()
+                     && iter_eq_by(&diagnostics, &*existing_diagnostics, |new, existing| {
+                         are_diagnostics_equal(new, existing)
+                     })
+                 {
+-                    // don't signal an update if the diagnostics are the same
++                    // Even an unchanged result supersedes older worker generations.
++                    if generation > *old_gen {
++                        *old_gen = generation;
++                    }
++                    if !same_document {
++                        *old_document = document;
++                        self.changes.insert(file_id);
++                    }
+                     continue;
+                 }
+-                if *old_gen < generation || generation == 0 {
+-                    target.insert(file_id, (generation, diagnostics));
++                if *old_gen < generation || generation == 0 || !same_document {
++                    target.insert(file_id, (generation, document, diagnostics));
+                 } else {
+                     existing_diagnostics.extend(diagnostics);
+                     // FIXME: Doing the merge step of a merge sort here would be a bit more performant
+@@ -229,7 +308,7 @@ impl DiagnosticCollection {
+                     existing_diagnostics.sort_by_key(|it| (it.range.start, it.range.end))
+                 }
+             } else {
+-                target.insert(file_id, (generation, diagnostics));
++                target.insert(file_id, (generation, document, diagnostics));
+             }
+             self.changes.insert(file_id);
+         }
+@@ -238,9 +317,16 @@ impl DiagnosticCollection {
+     pub(crate) fn diagnostics_for(
+         &self,
+         file_id: FileId,
++        document: Option<&Arc<DocumentData>>,
+     ) -> impl Iterator<Item = &lsp_types::Diagnostic> {
+-        let native_syntax = self.native_syntax.get(&file_id).into_iter().flat_map(|(_, d)| d);
+-        let native_semantic = self.native_semantic.get(&file_id).into_iter().flat_map(|(_, d)| d);
++        let current =
++            |stored: &&(DiagnosticsGeneration, Arc<DocumentData>, Vec<lsp_types::Diagnostic>)| {
++                document.is_some_and(|document| Arc::ptr_eq(document, &stored.1))
++            };
++        let native_syntax =
++            self.native_syntax.get(&file_id).filter(current).into_iter().flat_map(|(_, _, d)| d);
++        let native_semantic =
++            self.native_semantic.get(&file_id).filter(current).into_iter().flat_map(|(_, _, d)| d);
+         let check = self
+             .check
+             .iter()
+@@ -261,6 +347,248 @@ impl DiagnosticCollection {
+         self.generation += 1;
+         self.generation
+     }
++
++    pub(crate) fn current_generation(&self) -> DiagnosticsGeneration {
++        self.generation
++    }
++}
++
++#[cfg(test)]
++mod generation_tests {
++    use super::*;
++
++    fn diagnostic(message: &str) -> lsp_types::Diagnostic {
++        lsp_types::Diagnostic { message: message.to_owned().into(), ..Default::default() }
++    }
++
++    fn document(version: i32) -> Arc<DocumentData> {
++        Arc::new(DocumentData::new(version, Vec::new()))
++    }
++
++    fn messages(
++        collection: &DiagnosticCollection,
++        file_id: FileId,
++        document: &Arc<DocumentData>,
++    ) -> Vec<lsp_types::Message> {
++        collection.diagnostics_for(file_id, Some(document)).map(|it| it.message.clone()).collect()
++    }
++
++    #[test]
++    fn delayed_older_error_cannot_restore_after_newer_valid_result() {
++        let file_id = FileId::from_raw(0);
++        let old = document(1);
++        let current = document(3);
++        let mut collection = DiagnosticCollection::default();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![(file_id, old.clone(), vec![diagnostic("old E0308")])],
++        ));
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            3,
++            vec![(file_id, current.clone(), Vec::new())],
++        ));
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            2,
++            vec![(file_id, old, vec![diagnostic("late old E0308")])],
++        ));
++        let (generation, _, diagnostics) = &collection.native_semantic[&file_id];
++        assert_eq!(*generation, 3);
++        assert!(diagnostics.is_empty());
++        assert!(messages(&collection, file_id, &current).is_empty());
++    }
++
++    #[test]
++    fn equal_newer_result_advances_watermark_against_late_old_result() {
++        let file_id = FileId::from_raw(0);
++        let current = document(1);
++        let mut collection = DiagnosticCollection::default();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![(file_id, current.clone(), vec![diagnostic("current")])],
++        ));
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            2,
++            vec![(file_id, current.clone(), vec![diagnostic("current")])],
++        ));
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![(file_id, current, vec![diagnostic("late old")])],
++        ));
++        let (generation, _, diagnostics) = &collection.native_semantic[&file_id];
++        assert_eq!(*generation, 2);
++        assert_eq!(diagnostics.len(), 1);
++        assert_eq!(diagnostics[0].message, "current".into());
++    }
++
++    #[test]
++    fn equal_newer_result_marks_file_for_versioned_publication() {
++        let file_id = FileId::from_raw(0);
++        let old = document(1);
++        let current = document(2);
++        let mut collection = DiagnosticCollection::default();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![(file_id, old, Vec::new())],
++        ));
++        assert!(collection.take_changes().unwrap().contains(&file_id));
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            2,
++            vec![(file_id, current, Vec::new())],
++        ));
++        assert_eq!(collection.native_semantic[&file_id].0, 2);
++        assert!(collection.take_changes().unwrap().contains(&file_id));
++    }
++
++    #[test]
++    fn previous_document_semantic_is_not_published_with_new_syntax() {
++        let file_id = FileId::from_raw(0);
++        let old = document(1);
++        let current = document(2);
++        let mut collection = DiagnosticCollection::default();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![(file_id, old, vec![diagnostic("previous document")])],
++        ));
++        collection.take_changes();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Syntax(
++            2,
++            vec![(file_id, current.clone(), Vec::new())],
++        ));
++        assert!(messages(&collection, file_id, &current).is_empty());
++    }
++
++    #[test]
++    fn delayed_previous_result_does_not_displace_other_file_or_same_generation() {
++        let first = FileId::from_raw(0);
++        let second = FileId::from_raw(1);
++        let old_first = document(1);
++        let current_first = document(2);
++        let current_second = document(1);
++        let mut collection = DiagnosticCollection::default();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![
++                (first, old_first.clone(), vec![diagnostic("old first")]),
++                (second, current_second.clone(), vec![diagnostic("current second")]),
++            ],
++        ));
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Syntax(
++            2,
++            vec![(first, current_first.clone(), vec![diagnostic("current syntax")])],
++        ));
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![(first, old_first, vec![diagnostic("late first")])],
++        ));
++        assert_eq!(
++            messages(&collection, first, &current_first),
++            vec![diagnostic("current syntax").message],
++        );
++        assert_eq!(
++            messages(&collection, second, &current_second),
++            vec![diagnostic("current second").message],
++        );
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            2,
++            vec![(first, current_first.clone(), vec![diagnostic("current semantic")])],
++        ));
++        assert_eq!(
++            messages(&collection, first, &current_first),
++            vec![diagnostic("current syntax").message, diagnostic("current semantic").message],
++        );
++    }
++
++    #[test]
++    fn equal_result_for_same_document_does_not_republish_for_new_job_generation() {
++        let file_id = FileId::from_raw(0);
++        let current = document(1);
++        let mut collection = DiagnosticCollection::default();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            1,
++            vec![(file_id, current.clone(), Vec::new())],
++        ));
++        collection.take_changes();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            2,
++            vec![(file_id, current, Vec::new())],
++        ));
++        assert!(collection.take_changes().is_none());
++    }
++
++    #[test]
++    fn edited_file_rejects_older_flycheck_without_affecting_other_files() {
++        let edited = FileId::from_raw(0);
++        let other = FileId::from_raw(1);
++        let current = document(2);
++        let mut collection = DiagnosticCollection::default();
++        collection.add_check_diagnostic(0, 5, &None, edited, diagnostic("old"), None);
++        collection.add_check_diagnostic(0, 5, &None, other, diagnostic("other"), None);
++        collection.take_changes();
++
++        collection.invalidate_check_for_file(
++            edited,
++            5,
++            &VfsPath::new_virtual_path("/edited.rs".to_owned()),
++        );
++        assert!(messages(&collection, edited, &current).is_empty());
++        assert_eq!(messages(&collection, other, &current), vec![diagnostic("other").message]);
++        assert!(collection.take_changes().unwrap().contains(&edited));
++
++        collection.add_check_diagnostic(0, 5, &None, edited, diagnostic("late old"), None);
++        assert!(messages(&collection, edited, &current).is_empty());
++        collection.add_check_diagnostic(0, 6, &None, edited, diagnostic("new"), None);
++        assert_eq!(messages(&collection, edited, &current), vec![diagnostic("new").message]);
++    }
++
++    #[test]
++    fn identical_text_new_version_keeps_diagnostics_and_rejects_old_job() {
++        let file_id = FileId::from_raw(0);
++        let previous = document(1);
++        let current = document(2);
++        let mut collection = DiagnosticCollection::default();
++        let initial_generation = collection.next_generation();
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            initial_generation,
++            vec![(file_id, previous.clone(), vec![diagnostic("current")])],
++        ));
++        collection.take_changes();
++
++        collection.advance_native_document(file_id, &previous, current.clone());
++        assert_eq!(messages(&collection, file_id, &current), vec![diagnostic("current").message]);
++        assert!(collection.take_changes().unwrap().contains(&file_id));
++
++        collection.set_native_diagnostics(DiagnosticsTaskKind::Semantic(
++            initial_generation,
++            vec![(file_id, previous, vec![diagnostic("late old")])],
++        ));
++        assert_eq!(messages(&collection, file_id, &current), vec![diagnostic("current").message]);
++    }
++
++    #[test]
++    fn editing_second_file_removes_cached_first_file_multipart_fix() {
++        let a = FileId::from_raw(0);
++        let b = FileId::from_raw(1);
++        let uri_a: lsp_types::Uri = "file:///C:/tmp/fix-a.rs".parse().unwrap();
++        let uri_b: lsp_types::Uri = "file:///C:/tmp/fix-b.rs".parse().unwrap();
++        let mut changes = FxHashMap::default();
++        changes.insert(uri_a, Vec::new());
++        changes.insert(uri_b.clone(), Vec::new());
++        let fix = Fix {
++            ranges: SmallVec::new(),
++            action: lsp_ext::CodeAction {
++                edit: Some(lsp_ext::SnippetWorkspaceEdit {
++                    changes: Some(changes),
++                    ..Default::default()
++                }),
++                ..Default::default()
++            },
++        };
++        let mut collection = DiagnosticCollection::default();
++        collection.add_check_diagnostic(0, 1, &None, a, diagnostic("A"), Some(Box::new(fix)));
++        assert_eq!(collection.check_fixes[0][&None][&a].len(), 1);
++        collection.invalidate_check_for_file(b, 1, &lsp::from_proto::vfs_path(&uri_b).unwrap());
++        assert!(collection.check_fixes[0][&None].get(&a).is_none_or(Vec::is_empty));
++    }
+ }
+ 
+ fn are_diagnostics_equal(left: &lsp_types::Diagnostic, right: &lsp_types::Diagnostic) -> bool {
+@@ -280,7 +608,7 @@ pub(crate) fn fetch_native_diagnostics(
+     subscriptions: std::sync::Arc<[FileId]>,
+     slice: std::ops::Range<usize>,
+     kind: NativeDiagnosticsFetchKind,
+-) -> Vec<(FileId, Vec<lsp_types::Diagnostic>)> {
++) -> ide::Cancellable<Vec<(FileId, Vec<lsp_types::Diagnostic>)>> {
+     let _p = tracing::info_span!("fetch_native_diagnostics").entered();
+     let _ctx = DbPanicContext::enter("fetch_native_diagnostics".to_owned());
+ 
+@@ -291,41 +619,32 @@ pub(crate) fn fetch_native_diagnostics(
+         .iter()
+         .copied()
+         .map(|file_id| {
+-            let diagnostics = (|| {
+-                let line_index = snapshot.file_line_index(file_id).ok()?;
+-                let source_root = snapshot.analysis.source_root_id(file_id).ok()?;
+-
+-                let config = &snapshot.config.diagnostics(Some(source_root));
+-                let diagnostics = match kind {
+-                    NativeDiagnosticsFetchKind::Syntax => {
+-                        snapshot.analysis.syntax_diagnostics(config, file_id).ok()?
++            let line_index = snapshot.file_line_index(file_id)?;
++            let source_root = snapshot.analysis.source_root_id(file_id)?;
++            let config = &snapshot.config.diagnostics(Some(source_root));
++            let diagnostics = match kind {
++                NativeDiagnosticsFetchKind::Syntax => {
++                    snapshot.analysis.syntax_diagnostics(config, file_id)?
++                }
++                NativeDiagnosticsFetchKind::Semantic if config.enabled => snapshot
++                    .analysis
++                    .semantic_diagnostics(config, ide::AssistResolveStrategy::None, file_id)?,
++                NativeDiagnosticsFetchKind::Semantic => Vec::new(),
++            };
++            let converted = diagnostics
++                .into_iter()
++                .filter_map(|d| {
++                    if d.range.file_id == file_id {
++                        Some(convert_diagnostic(&line_index, d))
++                    } else {
++                        odd_ones.push(d);
++                        None
+                     }
+-
+-                    NativeDiagnosticsFetchKind::Semantic if config.enabled => snapshot
+-                        .analysis
+-                        .semantic_diagnostics(config, ide::AssistResolveStrategy::None, file_id)
+-                        .ok()?,
+-                    NativeDiagnosticsFetchKind::Semantic => return None,
+-                };
+-                Some(
+-                    diagnostics
+-                        .into_iter()
+-                        .filter_map(|d| {
+-                            if d.range.file_id == file_id {
+-                                Some(convert_diagnostic(&line_index, d))
+-                            } else {
+-                                odd_ones.push(d);
+-                                None
+-                            }
+-                        })
+-                        .collect::<Vec<_>>(),
+-                )
+-            })()
+-            .unwrap_or_default();
+-
+-            (file_id, diagnostics)
++                })
++                .collect::<Vec<_>>();
++            Ok((file_id, converted))
+         })
+-        .collect::<Vec<_>>();
++        .collect::<ide::Cancellable<Vec<_>>>()?;
+ 
+     // Add back any diagnostics that point to files we are subscribed to
+     for (file_id, group) in odd_ones
+@@ -341,14 +660,12 @@ pub(crate) fn fetch_native_diagnostics(
+         else {
+             continue;
+         };
+-        let Some(line_index) = snapshot.file_line_index(file_id).ok() else {
+-            break;
+-        };
++        let line_index = snapshot.file_line_index(file_id)?;
+         for diagnostic in group {
+             diagnostics.push(convert_diagnostic(&line_index, diagnostic));
+         }
+     }
+-    diagnostics
++    Ok(diagnostics)
+ }
+ 
+ pub(crate) fn convert_diagnostic(
+diff --git a/crates/rust-analyzer/src/flycheck.rs b/crates/rust-analyzer/src/flycheck.rs
+index 99e640a3c..f4d8c7b0c 100644
+--- a/crates/rust-analyzer/src/flycheck.rs
++++ b/crates/rust-analyzer/src/flycheck.rs
+@@ -28,6 +28,7 @@ use triomphe::Arc;
+ use crate::{
+     command::{CommandHandle, JsonLinesParser},
+     diagnostics::DiagnosticsGeneration,
++    mem_docs::MemDocs,
+ };
+ 
+ #[derive(Clone, Debug, Default, PartialEq, Eq)]
+@@ -213,6 +214,7 @@ pub(crate) struct FlycheckHandle {
+     _thread: stdx::thread::JoinHandle,
+     id: usize,
+     generation: Arc<AtomicUsize>,
++    latest_request: Arc<AtomicUsize>,
+ }
+ 
+ impl FlycheckHandle {
+@@ -228,9 +230,11 @@ impl FlycheckHandle {
+         ws_target_dir: Option<Utf8PathBuf>,
+         toolchain_version: Option<semver::Version>,
+     ) -> FlycheckHandle {
++        let latest_request = Arc::new(AtomicUsize::new(generation.load(Ordering::Relaxed)));
+         let actor = FlycheckActor::new(
+             id,
+             generation.load(Ordering::Relaxed),
++            latest_request.clone(),
+             sender,
+             config,
+             config_json,
+@@ -245,44 +249,67 @@ impl FlycheckHandle {
+             stdx::thread::Builder::new(stdx::thread::ThreadIntent::Worker, format!("Flycheck{id}"))
+                 .spawn(move || actor.run(receiver))
+                 .expect("failed to spawn thread");
+-        FlycheckHandle { id, generation, sender, _thread: thread }
++        FlycheckHandle { id, generation, latest_request, sender, _thread: thread }
++    }
++
++    /// Allocate the order of a save before dispatching its asynchronous work.
++    pub(crate) fn reserve_restart(&self) -> DiagnosticsGeneration {
++        self.generation.fetch_add(1, Ordering::Relaxed) + 1
+     }
+ 
+     /// Schedule a re-start of the cargo check worker to do a workspace wide check.
+-    pub(crate) fn restart_workspace(&self, saved_file: Option<AbsPathBuf>) {
+-        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
++    pub(crate) fn restart_workspace(&self, saved_file: Option<AbsPathBuf>, mem_docs: MemDocs) {
++        self.restart_workspace_reserved(self.reserve_restart(), saved_file, mem_docs);
++    }
++
++    pub(crate) fn restart_workspace_reserved(
++        &self,
++        generation: DiagnosticsGeneration,
++        saved_file: Option<AbsPathBuf>,
++        mem_docs: MemDocs,
++    ) {
++        if self.latest_request.fetch_max(generation, Ordering::SeqCst) > generation {
++            return;
++        }
+         self.sender
+             .send(StateChange::Restart {
+                 generation,
+                 scope: FlycheckScope::Workspace,
+                 saved_file,
+                 target: None,
++                mem_docs,
+             })
+             .unwrap();
+     }
+ 
+-    /// Schedule a re-start of the cargo check worker to do a package wide check.
+-    pub(crate) fn restart_for_package(
++    pub(crate) fn restart_for_package_reserved(
+         &self,
++        generation: DiagnosticsGeneration,
+         package: PackageSpecifier,
+         target: Option<Target>,
+         workspace_deps: Option<FxHashSet<PackageSpecifier>>,
+         saved_file: Option<AbsPathBuf>,
++        mem_docs: MemDocs,
+     ) {
+-        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
++        if self.latest_request.fetch_max(generation, Ordering::SeqCst) > generation {
++            return;
++        }
+         self.sender
+             .send(StateChange::Restart {
+                 generation,
+                 scope: FlycheckScope::Package { package, workspace_deps },
+                 saved_file,
+                 target,
++                mem_docs,
+             })
+             .unwrap();
+     }
+ 
+     /// Stop this cargo check worker.
+     pub(crate) fn cancel(&self) {
+-        self.sender.send(StateChange::Cancel).unwrap();
++        let generation = self.reserve_restart();
++        self.latest_request.fetch_max(generation, Ordering::SeqCst);
++        self.sender.send(StateChange::Cancel { generation }).unwrap();
+     }
+ 
+     pub(crate) fn id(&self) -> usize {
+@@ -314,6 +341,7 @@ pub(crate) enum FlycheckMessage {
+         workspace_root: Arc<AbsPathBuf>,
+         diagnostic: Diagnostic,
+         package_id: Option<PackageSpecifier>,
++        mem_docs: MemDocs,
+     },
+ 
+     /// Request clearing all outdated diagnostics.
+@@ -336,6 +364,7 @@ impl fmt::Debug for FlycheckMessage {
+                 workspace_root,
+                 diagnostic,
+                 package_id,
++                ..
+             } => f
+                 .debug_struct("AddDiagnostic")
+                 .field("id", id)
+@@ -415,8 +444,11 @@ enum StateChange {
+         scope: FlycheckScope,
+         saved_file: Option<AbsPathBuf>,
+         target: Option<Target>,
++        mem_docs: MemDocs,
++    },
++    Cancel {
++        generation: DiagnosticsGeneration,
+     },
+-    Cancel,
+ }
+ 
+ /// A [`FlycheckActor`] is a single check instance of a workspace.
+@@ -425,6 +457,8 @@ struct FlycheckActor {
+     id: usize,
+ 
+     generation: DiagnosticsGeneration,
++    latest_request: Arc<AtomicUsize>,
++    mem_docs: MemDocs,
+     sender: Sender<FlycheckMessage>,
+     config: FlycheckConfig,
+     config_json: FlycheckConfigJson,
+@@ -526,6 +560,7 @@ impl FlycheckActor {
+     fn new(
+         id: usize,
+         generation: DiagnosticsGeneration,
++        latest_request: Arc<AtomicUsize>,
+         sender: Sender<FlycheckMessage>,
+         config: FlycheckConfig,
+         config_json: FlycheckConfigJson,
+@@ -539,6 +574,8 @@ impl FlycheckActor {
+         FlycheckActor {
+             id,
+             generation,
++            latest_request,
++            mem_docs: MemDocs::default(),
+             sender,
+             config,
+             config_json,
+@@ -574,7 +611,10 @@ impl FlycheckActor {
+     fn run(mut self, inbox: Receiver<StateChange>) {
+         'event: while let Some(event) = self.next_event(&inbox) {
+             match event {
+-                Event::RequestStateChange(StateChange::Cancel) => {
++                Event::RequestStateChange(StateChange::Cancel { generation }) => {
++                    if generation < self.latest_request.load(Ordering::SeqCst) {
++                        continue;
++                    }
+                     tracing::debug!(flycheck_id = self.id, "flycheck cancelled");
+                     self.cancel_check_process();
+                 }
+@@ -583,14 +623,22 @@ impl FlycheckActor {
+                     mut scope,
+                     mut saved_file,
+                     mut target,
++                    mut mem_docs,
+                 }) => {
++                    if generation < self.latest_request.load(Ordering::SeqCst) {
++                        continue;
++                    }
+                     // Cancel the previously spawned process
+                     self.cancel_check_process();
+ 
+                     // Debounce by briefly waiting for other state changes.
+                     while let Ok(restart) = inbox.recv_timeout(Duration::from_millis(50)) {
+                         match restart {
+-                            StateChange::Cancel => {
++                            StateChange::Cancel { generation: cancelled_generation } => {
++                                if cancelled_generation < self.latest_request.load(Ordering::SeqCst)
++                                {
++                                    continue;
++                                }
+                                 // We got a cancel straight after this restart request, so
+                                 // don't do anything.
+                                 continue 'event;
+@@ -600,22 +648,28 @@ impl FlycheckActor {
+                                 scope: s,
+                                 saved_file: sf,
+                                 target: t,
++                                mem_docs: docs,
+                             } => {
+-                                // We got another restart request. Take the parameters
+-                                // from the last restart request in this time window,
+-                                // because the most recent request is probably the most
+-                                // relevant to the user.
+-                                generation = g;
+-                                scope = s;
+-                                saved_file = sf;
+-                                target = t;
++                                // Arrival order can differ from document request order.
++                                if g >= generation {
++                                    generation = g;
++                                    scope = s;
++                                    saved_file = sf;
++                                    target = t;
++                                    mem_docs = docs;
++                                }
+                             }
+                         }
+                     }
+ 
++                    if generation < self.latest_request.load(Ordering::SeqCst) {
++                        continue;
++                    }
++
+                     let command = self.check_command(&scope, saved_file.as_deref(), target);
+                     self.scope = scope.clone();
+                     self.generation = generation;
++                    self.mem_docs = mem_docs;
+ 
+                     let Some((command, origin)) = command else {
+                         tracing::debug!(?scope, "failed to build flycheck command");
+@@ -823,6 +877,7 @@ impl FlycheckActor {
+                             package_id,
+                             workspace_root: self.root.clone(),
+                             diagnostic,
++                            mem_docs: self.mem_docs.clone(),
+                         });
+                     }
+                 },
+diff --git a/crates/rust-analyzer/src/global_state.rs b/crates/rust-analyzer/src/global_state.rs
+index 76a79ae08..e2a37f4f5 100644
+--- a/crates/rust-analyzer/src/global_state.rs
++++ b/crates/rust-analyzer/src/global_state.rs
+@@ -42,7 +42,7 @@ use crate::{
+     lsp::{from_proto, to_proto::url_from_abs_path},
+     lsp_ext,
+     main_loop::Task,
+-    mem_docs::MemDocs,
++    mem_docs::{DocumentData, MemDocs},
+     op_queue::{Cause, OpQueue},
+     priming_scope, reload,
+     target_spec::{CargoTargetSpec, ProjectJsonTargetSpec, TargetSpec},
+@@ -75,6 +75,116 @@ pub(crate) struct Handle<H, C> {
+ pub(crate) type ReqHandler = fn(&mut GlobalState, lsp_server::Response);
+ type ReqQueue = lsp_server::ReqQueue<(String, Instant), ReqHandler>;
+ 
++#[derive(Debug)]
++pub(crate) struct SerializedDiagnostics {
++    file_id: FileId,
++    sequence: u64,
++    document: Option<Arc<DocumentData>>,
++    uri: Uri,
++    message: lsp_server::Message,
++}
++
++#[derive(Default)]
++struct SentDiagnostics {
++    latest: FxHashMap<FileId, u64>,
++}
++
++impl SentDiagnostics {
++    fn accept(&mut self, file_id: FileId, sequence: u64) -> bool {
++        match self.latest.entry(file_id) {
++            std::collections::hash_map::Entry::Occupied(mut entry) => {
++                if sequence <= *entry.get() {
++                    return false;
++                }
++                entry.insert(sequence);
++            }
++            std::collections::hash_map::Entry::Vacant(entry) => {
++                entry.insert(sequence);
++            }
++        }
++        true
++    }
++}
++
++#[derive(Default)]
++struct PublishedDiagnostics {
++    files: FxHashMap<FileId, (Option<Arc<DocumentData>>, Vec<lsp_types::Diagnostic>)>,
++}
++
++impl PublishedDiagnostics {
++    fn record(
++        &mut self,
++        file_id: FileId,
++        document: Option<&Arc<DocumentData>>,
++        diagnostics: &[lsp_types::Diagnostic],
++    ) -> bool {
++        if let Some((old_document, old_diagnostics)) = self.files.get(&file_id) {
++            let same_document = match (old_document.as_ref(), document) {
++                (Some(old), Some(current)) => Arc::ptr_eq(old, current),
++                (None, None) => true,
++                _ => false,
++            };
++            if same_document && old_diagnostics == diagnostics {
++                return false;
++            }
++        }
++        self.files.insert(file_id, (document.cloned(), diagnostics.to_vec()));
++        true
++    }
++}
++
++#[cfg(test)]
++mod ordered_diagnostics_tests {
++    use super::{PublishedDiagnostics, SentDiagnostics};
++    use crate::mem_docs::DocumentData;
++    use ide::FileId;
++    use triomphe::Arc;
++
++    #[test]
++    fn delayed_older_bundle_must_not_block_or_displace_newer_bundle() {
++        let first = FileId::from_raw(0);
++        let second = FileId::from_raw(1);
++        let mut sent = SentDiagnostics::default();
++        assert!(sent.accept(first, 2));
++        assert!(sent.accept(second, 3));
++        assert!(!sent.accept(first, 1));
++        assert!(sent.accept(first, 4));
++        assert_eq!(sent.latest.len(), 2);
++    }
++
++    #[test]
++    fn missing_completion_does_not_buffer_later_revisions() {
++        let first = FileId::from_raw(0);
++        let second = FileId::from_raw(1);
++        let mut sent = SentDiagnostics::default();
++        assert!(sent.accept(first, 100));
++        assert!(sent.accept(second, 101));
++        assert!(!sent.accept(first, 99));
++        assert_eq!(sent.latest.len(), 2);
++    }
++
++    #[test]
++    fn unchanged_document_and_payload_publish_once() {
++        let first = FileId::from_raw(0);
++        let second = FileId::from_raw(1);
++        let old = Arc::new(DocumentData::new(1, Vec::new()));
++        let current = Arc::new(DocumentData::new(2, Vec::new()));
++        let empty = Vec::new();
++        let error = vec![lsp_types::Diagnostic {
++            message: "error".to_owned().into(),
++            ..Default::default()
++        }];
++        let mut published = PublishedDiagnostics::default();
++        assert!(published.record(first, Some(&old), &empty));
++        assert!(!published.record(first, Some(&old), &empty));
++        assert!(published.record(first, Some(&old), &error));
++        assert!(!published.record(first, Some(&old), &error));
++        assert!(published.record(first, Some(&current), &error));
++        assert!(published.record(second, Some(&old), &error));
++        assert!(!published.record(second, Some(&old), &error));
++    }
++}
++
+ /// `GlobalState` is the primary mutable state of the language server
+ ///
+ /// The most interesting components are `vfs`, which stores a consistent
+@@ -95,6 +205,13 @@ pub(crate) struct GlobalState {
+     pub(crate) config_errors: Option<ConfigErrors>,
+     pub(crate) analysis_host: AnalysisHost,
+     pub(crate) diagnostics: DiagnosticCollection,
++    next_diagnostics_publication: u64,
++    sent_diagnostics: SentDiagnostics,
++    published_diagnostics: PublishedDiagnostics,
++    pub(crate) pending_diagnostics_refresh: bool,
++    pub(crate) pending_native_diagnostics_retry: bool,
++    pub(crate) native_diagnostics_retry_at: Option<std::time::Instant>,
++    pub(crate) native_diagnostics_retry_attempts: u32,
+     pub(crate) mem_docs: MemDocs,
+     pub(crate) source_root_config: SourceRootConfig,
+     /// A mapping that maps a local source root's `SourceRootId` to it parent's `SourceRootId`, if it has one.
+@@ -271,6 +388,9 @@ impl GlobalState {
+             config: Arc::new(config.clone()),
+             analysis_host,
+             diagnostics: Default::default(),
++            next_diagnostics_publication: 0,
++            sent_diagnostics: SentDiagnostics::default(),
++            published_diagnostics: PublishedDiagnostics::default(),
+             mem_docs: MemDocs::default(),
+             semantic_tokens_cache: Arc::new(Default::default()),
+             shutdown_requested: false,
+@@ -320,6 +440,10 @@ impl GlobalState {
+             fetch_proc_macros_queue: OpQueue::default(),
+ 
+             prime_caches_queue: OpQueue::default(),
++            pending_diagnostics_refresh: false,
++            pending_native_diagnostics_retry: false,
++            native_diagnostics_retry_at: None,
++            native_diagnostics_retry_attempts: 0,
+ 
+             deferred_task_queue,
+             incomplete_crate_graph: false,
+@@ -646,14 +770,20 @@ impl GlobalState {
+ 
+     pub(crate) fn publish_diagnostics(
+         &mut self,
++        file_id: FileId,
+         uri: Uri,
+-        version: Option<i32>,
++        document: Option<Arc<DocumentData>>,
+         mut diagnostics: Vec<lsp_types::Diagnostic>,
+     ) {
++        if !self.published_diagnostics.record(file_id, document.as_ref(), &diagnostics) {
++            return;
++        }
++        let version = document.as_ref().map(|it| it.version);
+         // We put this on a separate thread to avoid blocking the main thread with serialization work
++        let sequence = self.next_diagnostics_publication;
++        self.next_diagnostics_publication += 1;
+         self.task_pool.handle.spawn_with_sender(stdx::thread::ThreadIntent::Worker, {
+-            let sender = self.sender.clone();
+-            move |_| {
++            move |sender| {
+                 // VSCode assumes diagnostic messages to be non-empty strings, so we need to patch
+                 // empty diagnostics. Neither the docs of VSCode nor the LSP spec say whether
+                 // diagnostic messages are actually allowed to be empty or not and patching this
+@@ -689,15 +819,38 @@ impl GlobalState {
+                     }
+                 }
+ 
++                let publication_uri = uri.clone();
+                 let not = lsp_server::Notification::new(
+                     lsp_types::PublishDiagnosticsNotification::METHOD.into(),
+                     lsp_types::PublishDiagnosticsParams { uri, diagnostics, version },
+                 );
+-                _ = sender.send(not.into());
++                _ = sender.send(Task::SerializedDiagnostics(SerializedDiagnostics {
++                    file_id,
++                    sequence,
++                    document,
++                    uri: publication_uri,
++                    message: not.into(),
++                }));
+             }
+         });
+     }
+ 
++    pub(crate) fn complete_serialized_diagnostics(&mut self, bundle: SerializedDiagnostics) {
++        let SerializedDiagnostics { file_id, sequence, document, uri, message } = bundle;
++        if !self.sent_diagnostics.accept(file_id, sequence) {
++            return;
++        }
++        let current = from_proto::vfs_path(&uri).ok().and_then(|path| self.mem_docs.get_arc(&path));
++        let same_document = match (document.as_ref(), current.as_ref()) {
++            (Some(old), Some(current)) => Arc::ptr_eq(old, current),
++            (None, None) => true,
++            _ => false,
++        };
++        if same_document {
++            self.send(message);
++        }
++    }
++
+     pub(crate) fn check_workspaces_msrv(&self) -> impl Iterator<Item = String> + '_ {
+         self.workspaces.iter().filter_map(|ws| {
+             if let Some(toolchain) = &ws.toolchain
+diff --git a/crates/rust-analyzer/src/handlers/notification.rs b/crates/rust-analyzer/src/handlers/notification.rs
+index 47a98476c..40c0d5276 100644
+--- a/crates/rust-analyzer/src/handlers/notification.rs
++++ b/crates/rust-analyzer/src/handlers/notification.rs
+@@ -13,6 +13,7 @@ use lsp_types::{
+     DidOpenTextDocumentParams, DidSaveTextDocumentParams, WorkDoneProgressCancelParams,
+ };
+ use paths::Utf8PathBuf;
++use rustc_hash::FxHashMap;
+ use triomphe::Arc;
+ use vfs::{AbsPathBuf, ChangeKind, VfsPath};
+ 
+@@ -62,16 +63,13 @@ pub(crate) fn handle_did_open_text_document(
+     let _p = tracing::info_span!("handle_did_open_text_document").entered();
+ 
+     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
+-        let already_exists = state
+-            .mem_docs
+-            .insert(
+-                path.clone(),
+-                DocumentData::new(
+-                    params.text_document.version,
+-                    params.text_document.text.clone().into_bytes(),
+-                ),
+-            )
+-            .is_err();
++        let mut document = DocumentData::new(
++            params.text_document.version,
++            params.text_document.text.clone().into_bytes(),
++        );
++        document.saved_data = path.as_path().and_then(|path| std::fs::read(path).ok());
++        let dirty_on_open = document.saved_data.as_deref() != Some(document.data.as_slice());
++        let already_exists = state.mem_docs.insert(path.clone(), document).is_err();
+         if already_exists {
+             tracing::error!("duplicate DidOpenTextDocument: {}", path);
+         }
+@@ -88,7 +86,12 @@ pub(crate) fn handle_did_open_text_document(
+         // contents, disk is the truth.
+         if !state.source_root_config.path_is_library(&path) {
+             let contents = params.text_document.text.into_bytes();
+-            state.vfs.write().0.set_file_contents(path, Some(contents));
++            state.vfs.write().0.set_file_contents(path.clone(), Some(contents));
++            if dirty_on_open && let Some((file_id, _)) = state.vfs.read().0.file_id(&path) {
++                let generation =
++                    state.flycheck.iter().map(|check| check.generation()).max().unwrap_or_default();
++                state.diagnostics.invalidate_check_for_file(file_id, generation, &path);
++            }
+         }
+         if state.config.discover_workspace_config().is_some() {
+             tracing::debug!("queuing task");
+@@ -108,7 +111,8 @@ pub(crate) fn handle_did_change_text_document(
+     let _p = tracing::info_span!("handle_did_change_text_document").entered();
+ 
+     if let Ok(path) = from_proto::vfs_path(&params.text_document.text_document_identifier.uri) {
+-        let Some(DocumentData { version, data }) = state.mem_docs.get_mut(&path) else {
++        let previous = state.mem_docs.get_arc(&path);
++        let Some(DocumentData { version, data, .. }) = state.mem_docs.get_mut(&path) else {
+             tracing::error!(?path, "unexpected DidChangeTextDocument");
+             return Ok(());
+         };
+@@ -126,8 +130,24 @@ pub(crate) fn handle_did_change_text_document(
+             data.clone_from(&new_contents);
+             // Library files are immutable, changes to them are ignored.
+             if !state.source_root_config.path_is_library(&path) {
+-                state.vfs.write().0.set_file_contents(path, Some(new_contents));
++                state.vfs.write().0.set_file_contents(path.clone(), Some(new_contents));
++            }
++            let file_id = state.vfs.read().0.file_id(&path).map(|(file_id, _)| file_id);
++            if let Some(file_id) = file_id {
++                let generation =
++                    state.flycheck.iter().map(|check| check.generation()).max().unwrap_or_default();
++                state.diagnostics.invalidate_check_for_file(file_id, generation, &path);
++            }
++        } else {
++            if !state.config.text_document_diagnostic() && state.config.publish_diagnostics(None) {
++                let file_id = state.vfs.read().0.file_id(&path).map(|(file_id, _)| file_id);
++                if let (Some(file_id), Some(previous), Some(current)) =
++                    (file_id, previous, state.mem_docs.get_arc(&path))
++                {
++                    state.diagnostics.advance_native_document(file_id, &previous, current);
++                }
+             }
++            state.pending_diagnostics_refresh = true;
+         }
+     }
+     Ok(())
+@@ -147,6 +167,9 @@ pub(crate) fn handle_did_close_text_document(
+         // Clear diagnostics also for excluded files, just in case.
+         if let Some((file_id, _)) = state.vfs.read().0.file_id(&path) {
+             state.diagnostics.clear_native_for(file_id);
++            let generation =
++                state.flycheck.iter().map(|check| check.generation()).max().unwrap_or_default();
++            state.diagnostics.invalidate_check_for_file(file_id, generation, &path);
+         }
+ 
+         state.semantic_tokens_cache.lock().remove(&params.text_document.uri);
+@@ -163,6 +186,18 @@ pub(crate) fn handle_did_save_text_document(
+     params: DidSaveTextDocumentParams,
+ ) -> anyhow::Result<()> {
+     if let Ok(vfs_path) = from_proto::vfs_path(&params.text_document.uri) {
++        let saved_data = vfs_path.as_path().and_then(|path| std::fs::read(path).ok());
++        if let Some(previous) = state.mem_docs.get_arc(&vfs_path)
++            && previous.saved_data != saved_data
++        {
++            state.mem_docs.get_mut(&vfs_path).unwrap().saved_data = saved_data;
++            if let (Some(current), Some((file_id, _))) =
++                (state.mem_docs.get_arc(&vfs_path), state.vfs.read().0.file_id(&vfs_path))
++            {
++                state.diagnostics.advance_native_document(file_id, &previous, current);
++            }
++            state.pending_diagnostics_refresh = true;
++        }
+         // Library files are immutable and not watched, so the save is the only chance to
+         // pick up the changed disk contents.
+         if state.source_root_config.path_is_library(&vfs_path)
+@@ -217,7 +252,7 @@ pub(crate) fn handle_did_save_text_document(
+     } else if state.config.check_on_save(None) && state.config.flycheck_workspace(None) {
+         // No specific flycheck was triggered, so let's trigger all of them.
+         for flycheck in state.flycheck.iter() {
+-            flycheck.restart_workspace(None);
++            flycheck.restart_workspace(None, state.mem_docs.clone());
+         }
+     }
+ 
+@@ -320,7 +355,7 @@ pub(crate) fn handle_did_change_watched_files(
+ 
+     if trigger_flycheck && state.config.check_on_save(None) {
+         for flycheck in state.flycheck.iter() {
+-            flycheck.restart_workspace(None);
++            flycheck.restart_workspace(None, state.mem_docs.clone());
+         }
+     }
+     Ok(())
+@@ -331,7 +366,11 @@ fn run_flycheck(state: &mut GlobalState, vfs_path: VfsPath) -> bool {
+ 
+     let file_id = state.vfs.read().0.file_id(&vfs_path);
+     if let Some((file_id, vfs::FileExcluded::No)) = file_id {
++        let reservations: FxHashMap<_, _> =
++            state.flycheck.iter().map(|check| (check.id(), check.reserve_restart())).collect();
+         let world = state.snapshot();
++        let once_flychecks = std::panic::AssertUnwindSafe(state.flycheck.clone());
++        let mem_docs = state.mem_docs.clone();
+         let invocation_strategy = state.config.flycheck(None).invocation_strategy();
+         let may_flycheck_workspace = state.config.flycheck_workspace(None);
+ 
+@@ -345,10 +384,14 @@ fn run_flycheck(state: &mut GlobalState, vfs_path: VfsPath) -> bool {
+                         // that the inner type be RefUnwindSafe, so if we were using that one we wouldn't
+                         // have this problem. Remove the line below when triomphe::Arc has an UnwindSafe impl
+                         // like std::sync::Arc's.
+-                        let world = world;
++                        let once_flychecks = once_flychecks;
+                         let saved_file = vfs_path.as_path().map(ToOwned::to_owned);
+-                        if let Some(flycheck) = world.flycheck.first() {
+-                            flycheck.restart_workspace(saved_file);
++                        if let Some(flycheck) = once_flychecks.0.first() {
++                            flycheck.restart_workspace_reserved(
++                                reservations[&flycheck.id()],
++                                saved_file,
++                                mem_docs.clone(),
++                            );
+                         }
+                         Ok(())
+                     })
+@@ -422,11 +465,13 @@ fn run_flycheck(state: &mut GlobalState, vfs_path: VfsPath) -> bool {
+                                     {
+                                         let workspace_deps =
+                                             world.all_workspace_dependencies_for_package(&package);
+-                                        flycheck.restart_for_package(
++                                        flycheck.restart_for_package_reserved(
++                                            reservations[&flycheck.id()],
+                                             package,
+                                             target,
+                                             workspace_deps,
+                                             saved_file.clone(),
++                                            mem_docs.clone(),
+                                         );
+                                     }
+                                 }
+@@ -504,7 +549,11 @@ fn run_flycheck(state: &mut GlobalState, vfs_path: VfsPath) -> bool {
+                             for (id, _) in workspace_ids.clone() {
+                                 if id == flycheck.id() {
+                                     workspace_check_triggered = true;
+-                                    flycheck.restart_workspace(saved_file.clone());
++                                    flycheck.restart_workspace_reserved(
++                                        reservations[&flycheck.id()],
++                                        saved_file.clone(),
++                                        mem_docs.clone(),
++                                    );
+                                     continue 'flychecks;
+                                 }
+                             }
+@@ -513,7 +562,11 @@ fn run_flycheck(state: &mut GlobalState, vfs_path: VfsPath) -> bool {
+                         // No specific flycheck was triggered, so let's trigger all of them.
+                         if !workspace_check_triggered && package_workspace_idx.is_none() {
+                             for flycheck in world.flycheck.iter() {
+-                                flycheck.restart_workspace(saved_file.clone());
++                                flycheck.restart_workspace_reserved(
++                                    reservations[&flycheck.id()],
++                                    saved_file.clone(),
++                                    mem_docs.clone(),
++                                );
+                             }
+                         }
+                         Ok(())
+@@ -558,7 +611,7 @@ pub(crate) fn handle_run_flycheck(
+     // No specific flycheck was triggered, so let's trigger all of them.
+     if state.config.flycheck_workspace(None) {
+         for flycheck in state.flycheck.iter() {
+-            flycheck.restart_workspace(None);
++            flycheck.restart_workspace(None, state.mem_docs.clone());
+         }
+     }
+     Ok(())
+diff --git a/crates/rust-analyzer/src/main_loop.rs b/crates/rust-analyzer/src/main_loop.rs
+index bd5c5ec87..54b72ee52 100644
+--- a/crates/rust-analyzer/src/main_loop.rs
++++ b/crates/rust-analyzer/src/main_loop.rs
+@@ -18,12 +18,15 @@ use vfs::{AbsPathBuf, FileId, loader::LoadingProgress};
+ 
+ use crate::{
+     config::Config,
+-    diagnostics::{DiagnosticsGeneration, NativeDiagnosticsFetchKind, fetch_native_diagnostics},
++    diagnostics::{
++        DiagnosticsGeneration, Fix, NativeDiagnosticsFetchKind, NativeDiagnosticsResult,
++        fetch_native_diagnostics,
++    },
+     discover::{DiscoverArgument, DiscoverCommand, DiscoverProjectMessage},
+     flycheck::{self, ClearDiagnosticsKind, ClearScope, FlycheckMessage},
+     global_state::{
+         FetchBuildDataResponse, FetchWorkspaceRequest, FetchWorkspaceResponse, GlobalState,
+-        file_id_to_url, url_to_file_id,
++        SerializedDiagnostics, file_id_to_url, url_to_file_id,
+     },
+     handlers::{
+         dispatch::{NotificationDispatcher, RequestDispatcher},
+@@ -34,10 +37,59 @@ use crate::{
+         utils::{Progress, notification_is},
+     },
+     lsp_ext,
++    mem_docs::MemDocs,
+     reload::{BuildDataProgress, ProcMacroProgress, ProjectWorkspaceProgress},
+     test_runner::{CargoTestMessage, CargoTestOutput, TestState},
+ };
+ 
++fn flycheck_fix_matches_source(current: &MemDocs, source: &MemDocs, fix: &Fix) -> bool {
++    let Some(edit) = fix.action.edit.as_ref() else { return true };
++    if edit.document_changes.is_some() {
++        return false;
++    }
++    edit.changes.as_ref().is_none_or(|changes| {
++        changes.keys().all(|uri| {
++            from_proto::vfs_path(uri)
++                .is_ok_and(|path| current.matches_flycheck_source(source, &path))
++        })
++    })
++}
++
++#[cfg(test)]
++mod flycheck_provenance_tests {
++    use super::*;
++    use crate::mem_docs::DocumentData;
++    use ide_db::FxHashMap;
++
++    #[test]
++    fn multipart_fix_cannot_edit_dirty_second_file() {
++        let a = "file:///C:/tmp/flycheck-a.rs".parse().unwrap();
++        let b = "file:///C:/tmp/flycheck-b.rs".parse().unwrap();
++        let a_path = from_proto::vfs_path(&a).unwrap();
++        let b_path = from_proto::vfs_path(&b).unwrap();
++        let mut docs = MemDocs::default();
++        docs.insert(a_path, DocumentData::new(1, b"diagnostic".to_vec())).unwrap();
++        docs.insert(b_path.clone(), DocumentData::new(1, b"saved".to_vec())).unwrap();
++        let source = docs.clone();
++        let mut changes = FxHashMap::default();
++        changes.insert(a, Vec::new());
++        changes.insert(b, Vec::new());
++        let fix = Fix {
++            ranges: Default::default(),
++            action: lsp_ext::CodeAction {
++                edit: Some(lsp_ext::SnippetWorkspaceEdit {
++                    changes: Some(changes),
++                    ..Default::default()
++                }),
++                ..Default::default()
++            },
++        };
++        assert!(flycheck_fix_matches_source(&docs, &source, &fix));
++        docs.get_mut(&b_path).unwrap().data = b"unsaved edit".to_vec();
++        assert!(!flycheck_fix_matches_source(&docs, &source, &fix));
++    }
++}
++
+ pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
+     tracing::info!("initial config: {:#?}", config);
+ 
+@@ -74,6 +126,7 @@ pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
+ enum Event {
+     Lsp(lsp_server::Message),
+     Task(Task),
++    NativeDiagnosticsRetry,
+     DeferredTask(DeferredTask),
+     Vfs(vfs::loader::Message),
+     Flycheck(FlycheckMessage),
+@@ -87,6 +140,7 @@ impl fmt::Display for Event {
+         match self {
+             Event::Lsp(_) => write!(f, "Event::Lsp"),
+             Event::Task(_) => write!(f, "Event::Task"),
++            Event::NativeDiagnosticsRetry => write!(f, "Event::NativeDiagnosticsRetry"),
+             Event::Vfs(_) => write!(f, "Event::Vfs"),
+             Event::Flycheck(_) => write!(f, "Event::Flycheck"),
+             Event::DeferredTask(_) => write!(f, "Event::DeferredTask"),
+@@ -105,8 +159,8 @@ pub(crate) enum DeferredTask {
+ 
+ #[derive(Debug)]
+ pub(crate) enum DiagnosticsTaskKind {
+-    Syntax(DiagnosticsGeneration, Vec<(FileId, Vec<lsp_types::Diagnostic>)>),
+-    Semantic(DiagnosticsGeneration, Vec<(FileId, Vec<lsp_types::Diagnostic>)>),
++    Syntax(DiagnosticsGeneration, Vec<NativeDiagnosticsResult>),
++    Semantic(DiagnosticsGeneration, Vec<NativeDiagnosticsResult>),
+ }
+ 
+ #[derive(Debug)]
+@@ -115,6 +169,8 @@ pub(crate) enum Task {
+     DiscoverLinkedProjects(DiscoverProjectParam),
+     Retry(lsp_server::Request),
+     Diagnostics(DiagnosticsTaskKind),
++    NativeDiagnosticsCancelled(DiagnosticsGeneration),
++    SerializedDiagnostics(SerializedDiagnostics),
+     DiscoverTest(lsp_ext::DiscoverTestResults),
+     PrimeCaches(PrimeCachesProgress),
+     FetchWorkspace(ProjectWorkspaceProgress),
+@@ -163,6 +219,7 @@ impl fmt::Debug for Event {
+         match self {
+             Event::Lsp(it) => fmt::Debug::fmt(it, f),
+             Event::Task(it) => fmt::Debug::fmt(it, f),
++            Event::NativeDiagnosticsRetry => write!(f, "NativeDiagnosticsRetry"),
+             Event::DeferredTask(it) => fmt::Debug::fmt(it, f),
+             Event::Vfs(it) => fmt::Debug::fmt(it, f),
+             Event::Flycheck(it) => fmt::Debug::fmt(it, f),
+@@ -279,6 +336,12 @@ impl GlobalState {
+         if let Ok(task) = self.fmt_pool.receiver.try_recv() {
+             return Ok(Some(Event::Task(task)));
+         }
++        let retry_timer = self
++            .native_diagnostics_retry_at
++            .map(|deadline| {
++                crossbeam_channel::after(deadline.saturating_duration_since(Instant::now()))
++            })
++            .unwrap_or_else(never);
+ 
+         select! {
+             recv(inbox) -> msg =>
+@@ -287,6 +350,8 @@ impl GlobalState {
+             recv(self.task_pool.receiver) -> task =>
+                 task.map(Event::Task),
+ 
++            recv(retry_timer) -> _ => Ok(Event::NativeDiagnosticsRetry),
++
+             recv(self.deferred_task_queue.receiver) -> task =>
+                 task.map(Event::DeferredTask),
+ 
+@@ -328,6 +393,10 @@ impl GlobalState {
+                 lsp_server::Message::Notification(not) => self.on_notification(not),
+                 lsp_server::Message::Response(resp) => self.complete_request(resp),
+             },
++            Event::NativeDiagnosticsRetry => {
++                self.native_diagnostics_retry_at = None;
++                self.pending_native_diagnostics_retry = true;
++            }
+             Event::DeferredTask(task) => {
+                 let _p = tracing::info_span!("GlobalState::handle_event/queued_task").entered();
+                 self.handle_deferred_task(task);
+@@ -394,6 +463,7 @@ impl GlobalState {
+                         PrimeCachesProgress::End { cancelled } => {
+                             self.analysis_host.trigger_garbage_collection();
+                             self.prime_caches_queue.op_completed(());
++                            self.pending_diagnostics_refresh = true;
+                             if cancelled {
+                                 self.prime_caches_queue
+                                     .request_op("restart after cancellation".to_owned(), ());
+@@ -405,9 +475,9 @@ impl GlobalState {
+                                     // Priming finished; now run the deferred initial workspace flycheck
+                                     // (kept off the critical path so `cargo check` doesn't contend with
+                                     // cache priming for CPU).
+-                                    self.flycheck
+-                                        .iter()
+-                                        .for_each(|flycheck| flycheck.restart_workspace(None));
++                                    self.flycheck.iter().for_each(|flycheck| {
++                                        flycheck.restart_workspace(None, self.mem_docs.clone())
++                                    });
+                                 }
+                                 tracing::info!("cache priming completed successfully");
+                             }
+@@ -532,12 +602,16 @@ impl GlobalState {
+                     && !self.fetch_build_data_queue.op_requested()
+                 {
+                     if !self.config.prefill_caches() {
+-                        self.flycheck.iter().for_each(|flycheck| flycheck.restart_workspace(None));
++                        self.flycheck.iter().for_each(|flycheck| {
++                            flycheck.restart_workspace(None, self.mem_docs.clone())
++                        });
+                     } else if proc_macros_loaded
+                         && !self.prime_caches_queue.op_in_progress()
+                         && !self.prime_caches_queue.op_requested()
+                     {
+-                        self.flycheck.iter().for_each(|flycheck| flycheck.restart_workspace(None));
++                        self.flycheck.iter().for_each(|flycheck| {
++                            flycheck.restart_workspace(None, self.mem_docs.clone())
++                        });
+                     }
+                 }
+             }
+@@ -567,7 +641,13 @@ impl GlobalState {
+ 
+             let project_or_mem_docs_changed =
+                 became_quiescent || state_changed || memdocs_added_or_removed;
+-            if project_or_mem_docs_changed
++            let pending_diagnostics_refresh = std::mem::take(&mut self.pending_diagnostics_refresh);
++            let pending_native_retry = std::mem::take(&mut self.pending_native_diagnostics_retry);
++            if project_or_mem_docs_changed || pending_diagnostics_refresh {
++                self.native_diagnostics_retry_at = None;
++                self.native_diagnostics_retry_attempts = 0;
++            }
++            if (project_or_mem_docs_changed || pending_diagnostics_refresh || pending_native_retry)
+                 && !self.config.text_document_diagnostic()
+                 && self.config.publish_diagnostics(None)
+             {
+@@ -595,13 +675,15 @@ impl GlobalState {
+         if let Some(diagnostic_changes) = self.diagnostics.take_changes() {
+             for file_id in diagnostic_changes {
+                 let uri = file_id_to_url(&self.vfs.read().0, file_id);
+-                let version = from_proto::vfs_path(&uri)
+-                    .ok()
+-                    .and_then(|path| self.mem_docs.get(&path).map(|it| it.version));
++                let document =
++                    from_proto::vfs_path(&uri).ok().and_then(|path| self.mem_docs.get_arc(&path));
+ 
+-                let diagnostics =
+-                    self.diagnostics.diagnostics_for(file_id).cloned().collect::<Vec<_>>();
+-                self.publish_diagnostics(uri, version, diagnostics);
++                let diagnostics = self
++                    .diagnostics
++                    .diagnostics_for(file_id, document.as_ref())
++                    .cloned()
++                    .collect::<Vec<_>>();
++                self.publish_diagnostics(file_id, uri, document, diagnostics);
+             }
+         }
+ 
+@@ -689,6 +771,13 @@ impl GlobalState {
+                 })
+                 .collect::<std::sync::Arc<_>>()
+         };
++        let documents = std::sync::Arc::new({
++            let vfs = &self.vfs.read().0;
++            subscriptions
++                .iter()
++                .map(|&file_id| (file_id, self.mem_docs.get_arc(vfs.file_path(file_id)).unwrap()))
++                .collect::<rustc_hash::FxHashMap<_, _>>()
++        });
+         tracing::trace!("updating notifications for {:?}", subscriptions);
+         // Split up the work on multiple threads, but we don't wanna fill the entire task pool with
+         // diagnostic tasks, so we limit the number of tasks to a quarter of the total thread pool.
+@@ -707,6 +796,7 @@ impl GlobalState {
+             // Diagnostics are triggered by the user typing
+             // so we run them on a latency sensitive thread.
+             let snapshot = self.snapshot();
++            let documents = documents.clone();
+             self.task_pool.handle.spawn_with_sender(ThreadIntent::LatencySensitive, {
+                 let subscriptions = subscriptions.clone();
+                 // Do not fetch semantic diagnostics (and populate query results) if we haven't even
+@@ -720,41 +810,67 @@ impl GlobalState {
+                 let fetch_semantic = self.vfs_done
+                     && self.fetch_workspaces_queue.last_op_result().is_some()
+                     && (!self.config.run_build_scripts(None)
+-                        || (self.fetch_build_data_queue.last_op_result().is_none()
+-                            && !self.fetch_build_data_queue.op_in_progress()))
++                        || self.fetch_build_data_queue.completed_and_idle())
+                     && (!self.config.expand_proc_macros()
+-                        || (self.fetch_proc_macros_queue.last_op_result().is_none()
+-                            && !self.fetch_proc_macros_queue.op_in_progress()));
++                        || self.fetch_proc_macros_queue.completed_and_idle());
+                 move |sender| {
+                     // We aren't observing the semantics token cache here
+                     let snapshot = AssertUnwindSafe(&snapshot);
+-                    let diags = std::panic::catch_unwind(|| {
++                    let diags = match std::panic::catch_unwind(|| {
+                         fetch_native_diagnostics(
+                             &snapshot,
+                             subscriptions.clone(),
+                             slice.clone(),
+                             NativeDiagnosticsFetchKind::Syntax,
+                         )
+-                    })
+-                    .unwrap_or_else(|_| {
+-                        subscriptions.iter().map(|&id| (id, Vec::new())).collect::<Vec<_>>()
+-                    });
++                    }) {
++                        Ok(Ok(diags)) => diags,
++                        Ok(Err(cancelled)) => {
++                            tracing::debug!(%cancelled, "syntax diagnostics cancelled");
++                            sender.send(Task::NativeDiagnosticsCancelled(generation)).unwrap();
++                            return;
++                        }
++                        Err(_) => {
++                            tracing::error!("syntax diagnostics panicked");
++                            return;
++                        }
++                    };
++                    let diags = diags
++                        .into_iter()
++                        .map(|(file_id, diagnostics)| {
++                            (file_id, documents[&file_id].clone(), diagnostics)
++                        })
++                        .collect();
+                     sender
+                         .send(Task::Diagnostics(DiagnosticsTaskKind::Syntax(generation, diags)))
+                         .unwrap();
+ 
+                     if fetch_semantic {
+-                        let diags = std::panic::catch_unwind(|| {
++                        let diags = match std::panic::catch_unwind(|| {
+                             fetch_native_diagnostics(
+                                 &snapshot,
+                                 subscriptions.clone(),
+                                 slice.clone(),
+                                 NativeDiagnosticsFetchKind::Semantic,
+                             )
+-                        })
+-                        .unwrap_or_else(|_| {
+-                            subscriptions.iter().map(|&id| (id, Vec::new())).collect::<Vec<_>>()
+-                        });
++                        }) {
++                            Ok(Ok(diags)) => diags,
++                            Ok(Err(cancelled)) => {
++                                tracing::debug!(%cancelled, "semantic diagnostics cancelled");
++                                sender.send(Task::NativeDiagnosticsCancelled(generation)).unwrap();
++                                return;
++                            }
++                            Err(_) => {
++                                tracing::error!("semantic diagnostics panicked");
++                                return;
++                            }
++                        };
++                        let diags = diags
++                            .into_iter()
++                            .map(|(file_id, diagnostics)| {
++                                (file_id, documents[&file_id].clone(), diagnostics)
++                            })
++                            .collect();
+                         sender
+                             .send(Task::Diagnostics(DiagnosticsTaskKind::Semantic(
+                                 generation, diags,
+@@ -862,6 +978,21 @@ impl GlobalState {
+             Task::Diagnostics(kind) => {
+                 self.diagnostics.set_native_diagnostics(kind);
+             }
++            Task::NativeDiagnosticsCancelled(generation) => {
++                if generation == self.diagnostics.current_generation()
++                    && self.native_diagnostics_retry_at.is_none()
++                    && !self.pending_native_diagnostics_retry
++                {
++                    let exponent = self.native_diagnostics_retry_attempts.min(5);
++                    let delay = Duration::from_millis(50u64 << exponent);
++                    self.native_diagnostics_retry_attempts =
++                        self.native_diagnostics_retry_attempts.saturating_add(1);
++                    self.native_diagnostics_retry_at = Some(Instant::now() + delay);
++                }
++            }
++            Task::SerializedDiagnostics(bundle) => {
++                self.complete_serialized_diagnostics(bundle);
++            }
+             Task::PrimeCaches(progress) => match progress {
+                 PrimeCachesProgress::Begin => prime_caches_progress.push(progress),
+                 PrimeCachesProgress::Report(_) => {
+@@ -1213,6 +1344,7 @@ impl GlobalState {
+                 workspace_root,
+                 diagnostic,
+                 package_id,
++                mem_docs,
+             } => {
+                 let snap = self.snapshot();
+                 let diagnostics = crate::diagnostics::flycheck_to_proto::map_rust_diagnostic_to_lsp(
+@@ -1221,7 +1353,18 @@ impl GlobalState {
+                     &workspace_root,
+                     &snap,
+                 );
+-                for diag in diagnostics {
++                for mut diag in diagnostics {
++                    let Ok(path) = from_proto::vfs_path(&diag.url) else {
++                        continue;
++                    };
++                    if !self.mem_docs.matches_flycheck_source(&mem_docs, &path) {
++                        continue;
++                    }
++                    if diag.fix.as_ref().is_some_and(|fix| {
++                        !flycheck_fix_matches_source(&self.mem_docs, &mem_docs, fix)
++                    }) {
++                        diag.fix = None;
++                    }
+                     match url_to_file_id(&self.vfs.read().0, &diag.url) {
+                         Ok(Some(file_id)) => self.diagnostics.add_check_diagnostic(
+                             id,
+diff --git a/crates/rust-analyzer/src/mem_docs.rs b/crates/rust-analyzer/src/mem_docs.rs
+index 05fc7a8dd..9ff0d2b0a 100644
+--- a/crates/rust-analyzer/src/mem_docs.rs
++++ b/crates/rust-analyzer/src/mem_docs.rs
+@@ -10,7 +10,7 @@ use vfs::VfsPath;
+ ///
+ /// For these document, their true contents is maintained by the client. It
+ /// might be different from what's on disk.
+-#[derive(Default, Clone)]
++#[derive(Debug, Default, Clone)]
+ pub(crate) struct MemDocs {
+     mem_docs: Arc<FxHashMap<VfsPath, Arc<DocumentData>>>,
+     added_or_removed: bool,
+@@ -41,6 +41,10 @@ impl MemDocs {
+         self.mem_docs.get(path).map(Arc::as_ref)
+     }
+ 
++    pub(crate) fn get_arc(&self, path: &VfsPath) -> Option<Arc<DocumentData>> {
++        self.mem_docs.get(path).cloned()
++    }
++
+     pub(crate) fn get_mut(&mut self, path: &VfsPath) -> Option<&mut DocumentData> {
+         // NB: don't set `self.added_or_removed` here, as that purposefully only
+         // tracks changes to the key set.
+@@ -54,6 +58,17 @@ impl MemDocs {
+     pub(crate) fn take_changes(&mut self) -> bool {
+         mem::replace(&mut self.added_or_removed, false)
+     }
++
++    pub(crate) fn matches_flycheck_source(&self, source: &MemDocs, path: &VfsPath) -> bool {
++        match (self.get_arc(path), source.get_arc(path)) {
++            (None, None) => true,
++            (Some(current), Some(source)) => {
++                Arc::ptr_eq(&current, &source)
++                    && current.saved_data.as_deref() == Some(current.data.as_slice())
++            }
++            _ => false,
++        }
++    }
+ }
+ 
+ /// Information about a document that the Language Client
+@@ -64,10 +79,47 @@ impl MemDocs {
+ pub(crate) struct DocumentData {
+     pub(crate) version: i32,
+     pub(crate) data: Vec<u8>,
++    pub(crate) saved_data: Option<Vec<u8>>,
+ }
+ 
+ impl DocumentData {
+     pub(crate) fn new(version: i32, data: Vec<u8>) -> Self {
+-        DocumentData { version, data }
++        DocumentData { version, saved_data: Some(data.clone()), data }
++    }
++}
++
++#[cfg(test)]
++mod flycheck_source_tests {
++    use super::*;
++
++    fn path(name: &str) -> VfsPath {
++        VfsPath::new_virtual_path(format!("/{name}.rs"))
++    }
++
++    #[test]
++    fn saving_other_file_does_not_make_dirty_document_safe() {
++        let a = path("a");
++        let b = path("b");
++        let mut docs = MemDocs::default();
++        docs.insert(a.clone(), DocumentData::new(1, b"disk error".to_vec())).unwrap();
++        docs.insert(b.clone(), DocumentData::new(1, b"helper".to_vec())).unwrap();
++        docs.get_mut(&a).unwrap().data = b"valid buffer".to_vec();
++        let check_source = docs.clone();
++
++        assert!(!docs.matches_flycheck_source(&check_source, &a));
++        assert!(docs.matches_flycheck_source(&check_source, &b));
++    }
++
++    #[test]
++    fn delayed_pre_edit_save_cannot_acquire_new_document_identity() {
++        let a = path("a");
++        let mut docs = MemDocs::default();
++        docs.insert(a.clone(), DocumentData::new(1, b"old error".to_vec())).unwrap();
++        let delayed_source = docs.clone();
++        docs.get_mut(&a).unwrap().data = b"valid buffer".to_vec();
++        docs.get_mut(&a).unwrap().saved_data = Some(b"valid buffer".to_vec());
++
++        assert!(!docs.matches_flycheck_source(&delayed_source, &a));
++        assert!(docs.matches_flycheck_source(&docs.clone(), &a));
+     }
+ }
+diff --git a/crates/rust-analyzer/src/op_queue.rs b/crates/rust-analyzer/src/op_queue.rs
+index 7af5b48bb..4e1fd25f7 100644
+--- a/crates/rust-analyzer/src/op_queue.rs
++++ b/crates/rust-analyzer/src/op_queue.rs
+@@ -69,8 +69,50 @@ impl<Args: std::fmt::Debug, Output> OpQueue<Args, Output> {
+         self.op_in_progress
+     }
+ 
++    /// Has a completed result with no newer operation waiting or running?
++    ///
++    /// A previous result remains available during reloads, so checking only
++    /// `last_op_result` can expose stale build data or proc macros.
++    pub(crate) fn completed_and_idle(&self) -> bool {
++        self.last_op_result.is_some() && !self.op_requested() && !self.op_in_progress()
++    }
++
+     // Has an operation been requested?
+     pub(crate) fn op_requested(&self) -> bool {
+         self.op_requested.is_some()
+     }
+ }
++
++// A semantic diagnostic snapshot must not use a stale result while a replacement
++// operation is waiting to start or still running.
++#[cfg(test)]
++mod tests {
++    use super::OpQueue;
++
++    #[test]
++    fn completed_and_idle_tracks_first_load_and_reloads() {
++        let mut queue = OpQueue::<(), bool>::default();
++        assert!(!queue.completed_and_idle());
++
++        queue.request_op("initial".to_owned(), ());
++        assert!(!queue.completed_and_idle());
++        assert_eq!(queue.should_start_op(), Some(("initial".to_owned(), ())));
++        assert!(!queue.completed_and_idle());
++
++        queue.op_completed(true);
++        assert!(queue.completed_and_idle());
++
++        queue.request_op("reload".to_owned(), ());
++        assert!(!queue.completed_and_idle(), "old result must not count while reload is queued");
++        assert_eq!(queue.should_start_op(), Some(("reload".to_owned(), ())));
++        assert!(!queue.completed_and_idle(), "old result must not count while reload runs");
++
++        queue.request_op("newer reload".to_owned(), ());
++        queue.op_completed(false);
++        assert!(!queue.completed_and_idle(), "a queued replacement still blocks readiness");
++        assert_eq!(queue.should_start_op(), Some(("newer reload".to_owned(), ())));
++        assert!(!queue.completed_and_idle());
++        queue.op_completed(false);
++        assert!(queue.completed_and_idle(), "completion is independent of the output value");
++    }
++}
+diff --git a/crates/rust-analyzer/src/reload.rs b/crates/rust-analyzer/src/reload.rs
+index 173409b32..54c78b1c8 100644
+--- a/crates/rust-analyzer/src/reload.rs
++++ b/crates/rust-analyzer/src/reload.rs
+@@ -92,6 +92,10 @@ impl GlobalState {
+     pub(crate) fn update_configuration(&mut self, config: Config) {
+         let _p = tracing::info_span!("GlobalState::update_configuration").entered();
+         let old_config = mem::replace(&mut self.config, Arc::new(config));
++        let build_data_enabled =
++            self.config.run_build_scripts(None) && !old_config.run_build_scripts(None);
++        let proc_macros_enabled =
++            self.config.expand_proc_macros() && !old_config.expand_proc_macros();
+         if self.config.lru_parse_query_capacity() != old_config.lru_parse_query_capacity() {
+             self.analysis_host.update_lru_capacity(self.config.lru_parse_query_capacity());
+         }
+@@ -123,6 +127,14 @@ impl GlobalState {
+             let req = FetchWorkspaceRequest { path: None, force_crate_graph_reload: false };
+             self.fetch_workspaces_queue.request_op("cfg_set_test config changed".to_owned(), req)
+         }
++
++        // Turning either feature on after the workspace was loaded requires new build data.
++        // Loading that data switches the workspace and then queues proc-macro loading when
++        // enabled. Requesting it here also keeps old results from satisfying the semantic
++        // diagnostics readiness guard while their replacement is pending.
++        if (build_data_enabled || proc_macros_enabled) && !self.workspaces.is_empty() {
++            self.fetch_build_data_queue.request_op("build data enabled by config".to_owned(), ());
++        }
+     }
+ 
+     pub(crate) fn current_status(&self) -> lsp_ext::ServerStatusParams {
