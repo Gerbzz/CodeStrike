@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$VoltPath,
+    [Parameter(Mandatory = $true)][string]$AnalyzerPath,
     [string]$EvidenceDirectory = (Join-Path $PSScriptRoot '../artifacts/lsp-native')
 )
 
@@ -25,6 +26,14 @@ public static class CodeStrikeLspWindow {
 
 $exe = (Resolve-Path 'editor/lapce/target/debug/CodeStrike.exe').Path
 $volt = (Resolve-Path -LiteralPath $VoltPath).Path
+$analyzer = (Resolve-Path -LiteralPath $AnalyzerPath).Path
+$analyzerVersion = @(& $analyzer --version)
+if ($LASTEXITCODE -ne 0) { throw 'Selected analyzer version check failed.' }
+"CODESTRIKE_LSP_ANALYZER_VERSION=$($analyzerVersion -join ' ')"
+"CODESTRIKE_LSP_ANALYZER_PATH=$analyzer"
+"CODESTRIKE_LSP_ANALYZER_SHA256=$((Get-FileHash -LiteralPath $analyzer -Algorithm SHA256).Hash)"
+# TOML basic strings use JSON-compatible escaping for this absolute Windows path.
+$analyzerToml = ConvertTo-Json -InputObject $analyzer -Compress
 $root = Join-Path $env:RUNNER_TEMP ('codestrike-rust-lsp-' + [guid]::NewGuid().ToString('N'))
 $fixture = Join-Path $root 'fixture'
 $appData = Join-Path $root 'appdata'
@@ -54,17 +63,17 @@ $source = Join-Path $src 'main.rs'
 $expectedSource = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }"
 $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource)
 [System.IO.File]::WriteAllText($source, $expectedSource.Replace('::Read;', '::Re;'))
-[System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
+[System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @"
 [lapce-rust]
-serverPath = "rust-analyzer"
+serverPath = $analyzerToml
 checkOnSave = false
-'@)
+"@)
 
 $evidence = $EvidenceDirectory
 New-Item -ItemType Directory -Path $evidence -Force | Out-Null
 "CODESTRIKE_LSP_FIXTURE_UTC=$([DateTime]::UtcNow.ToString('o'));workspace=$fixture;source=$source"
 "CODESTRIKE_LSP_SOURCE_URI=$(([Uri]$source).AbsoluteUri)"
-'CODESTRIKE_LSP_CONFIG=serverPath:rust-analyzer;checkOnSave:false;CARGO_NET_OFFLINE:true'
+"CODESTRIKE_LSP_CONFIG=serverPath:$analyzer;checkOnSave:false;CARGO_NET_OFFLINE:true"
 
 $start = [System.Diagnostics.ProcessStartInfo]::new($exe)
 $start.ArgumentList.Add('--wait')

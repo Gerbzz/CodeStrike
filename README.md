@@ -70,6 +70,55 @@ Copy-Item .\editor\lapce\target\debug\lapce.exe .\editor\lapce\target\debug\Code
 
 This follows the [tested Windows workflow](.github/workflows/editor-candidate.yml); it is a developer build, not an installer. The latest full acceptance run measured a 103.75 MiB debug executable, but release and installed footprints have not been measured. If a checkout converts the pinned upstream source to CRLF, the patch preparation will refuse it; use a fresh LF checkout rather than applying the patch to modified files.
 
+### Explicit reviewed Rust language-server selection
+
+The supported development route uses the preserved reviewed analyzer source, not an
+implicitly discovered stock server. It is **not bundled or installed by the editor
+build**. Stock rustup rust-analyzer 1.99.1 (`58cf8f9c`) has an inverted semantic
+readiness check: diagnostics can disappear once build data/proc macros finish
+loading. The existing reviewed patch repairs that guard and its reload regression;
+this does not claim to repair an independently installed stock binary.
+
+From the CodeStrike source checkout, build a fresh pinned analyzer checkout:
+
+```powershell
+rustup toolchain install 1.97.1 --profile minimal --component rust-src --no-self-update
+git -c core.autocrlf=false clone https://github.com/rust-lang/rust-analyzer.git reviewed-analyzer-source
+git -C reviewed-analyzer-source checkout --detach a0b58c0fe3e924302c1155e88c4a9454f86280c2
+pwsh -File .\scripts\analyzer\build-reviewed-analyzer.ps1 -SourcePath reviewed-analyzer-source -TargetDirectory reviewed-analyzer-target
+```
+
+The command verifies the exact compiler, upstream commit, original patch and lockfile
+hashes; it refuses dirty sources, builds without test hooks, runs library regressions,
+and prints the selected executable's version/path/SHA-256. Reuse the resulting binary;
+do not rerun patch preparation over modified source.
+
+Build the same pinned Rust Volt used by the native acceptance workflow:
+
+```powershell
+rustup target add wasm32-wasip1
+git clone https://github.com/lapce/lapce-rust.git rust-volt-source
+git -C rust-volt-source checkout --detach ea1c8da7df318a253edf07bd2862d236951b6d80
+cargo build --manifest-path rust-volt-source/Cargo.toml --locked --release --target wasm32-wasip1 --target-dir rust-volt-source/target
+New-Item -ItemType Directory -Path reviewed-rust-volt -Force
+Copy-Item rust-volt-source/target/wasm32-wasip1/release/lapce-rust.wasm reviewed-rust-volt
+Copy-Item rust-volt-source/volt.toml,rust-volt-source/LICENSE,rust-volt-source/rust-logo.png reviewed-rust-volt
+```
+
+In the workspace's `.codestrike/settings.toml`, explicitly select your built binary
+using an absolute path (merge this section with existing settings; do not overwrite them):
+
+```toml
+[lapce-rust]
+serverPath = 'C:\path\to\CodeStrike\reviewed-analyzer-target\debug\rust-analyzer.exe'
+```
+
+Launch the editor with `--plugin-path C:\path\to\CodeStrike\reviewed-rust-volt`
+and your workspace path. This is the real Volt `serverPath` selection also exercised
+by all three required native language probes, which retain exact UTF-8 completion
+and E0308 assertions. No global settings are changed, no prebuilt analyzer is downloaded,
+and default bundling/installer acceptance remains unfinished.
+
 ## Status and roadmap
 
 | Area | Lapce-based CodeStrike |
