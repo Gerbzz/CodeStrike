@@ -1,6 +1,7 @@
 param([switch]$Startup, [switch]$File)
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'wait-editor-save.ps1')
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -116,8 +117,11 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait('^{END}')
         [System.Windows.Forms.SendKeys]::SendWait('codestrike_ci_saved')
         [System.Windows.Forms.SendKeys]::SendWait('^s')
-        Start-Sleep -Seconds 2
-        $savedSource = [System.IO.File]::ReadAllText($sourceFile)
+        # Saving crosses the UI/proxy boundary. Observe its result, not a fixed
+        # two-second snapshot; the single native Ctrl+S and predicate stay intact.
+        $saveObservation = Wait-EditorSavedSource -Path $sourceFile -Marker 'codestrike_ci_saved'
+        $savedSource = $saveObservation.Source
+        "CODESTRIKE_GUI_FILE_SAVE_OBSERVATION=milliseconds:$($saveObservation.ElapsedMilliseconds);reads:$($saveObservation.Observations)"
         $fileSavePassed = $savedSource.Contains('codestrike_ci_saved')
         if ($fileSavePassed) { 'CODESTRIKE_GUI_FILE_SAVE=passed' }
         else {
