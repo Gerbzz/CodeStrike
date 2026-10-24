@@ -77,7 +77,7 @@ $start.Environment['APPDATA'] = $appData
 $start.Environment['LOCALAPPDATA'] = $localData
 $start.Environment['CARGO_NET_OFFLINE'] = 'true'
 $start.Environment['RA_LOG'] = 'rust_analyzer=info'
-$start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=debug,lapce_app=info'
+$start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=trace,lapce_app=info'
 $process = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $process) { throw 'Windows did not start CodeStrike.' }
 $stdoutTask = $process.StandardOutput.ReadToEndAsync()
