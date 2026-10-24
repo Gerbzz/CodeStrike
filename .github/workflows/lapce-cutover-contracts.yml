@@ -28,4 +28,9 @@ jobs:
       - run: python scripts/tests/test_reviewed_language_route.py
       - run: python scripts/tests/test_geometric_integration.py
       - run: python scripts/tests/test_lsp_readiness_contract.py
+      - run: python scripts/tests/test_save_readback_contract.py
+      - name: Test bounded native save readback without sending extra input
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/tests/test-editor-save-readback.ps1
       - run: cargo test --locked
