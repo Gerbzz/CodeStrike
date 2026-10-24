@@ -63,6 +63,9 @@ jobs:
       - name: Apply formatting-only overlay without replacing donor patch
         shell: pwsh
         run: .\scripts\prepare-lapce-format.ps1
+      - name: Apply reviewed dynamic save registration repair
+        shell: pwsh
+        run: .\scripts\prepare-lapce-language.ps1
       - name: Verify formatting
         shell: pwsh
         run: cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check
@@ -90,6 +93,10 @@ jobs:
           .\scripts\probe-windows-editor.ps1 -Startup
           .\scripts\probe-windows-editor.ps1
           .\scripts\probe-windows-editor.ps1 -File
+      - name: Test static and dynamic LSP save capability precedence
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy save_capability_tests --lib
       - name: Test save and conflict protection
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'

@@ -2,6 +2,48 @@ param([switch]$Startup, [switch]$File)
 
 $ErrorActionPreference = 'Stop'
 
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+if (-not ('CodeStrikeWindowProbe' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class CodeStrikeWindowProbe {
+    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+    private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr parameter);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    public static IntPtr FindEditorWindow(uint processId) {
+        IntPtr selected = IntPtr.Zero;
+        long largestArea = 0;
+        EnumWindows((window, parameter) => {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            Rect rect;
+            if (owner == processId && IsWindowVisible(window) && GetWindowRect(window, out rect)) {
+                int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+                long area = (long)width * height;
+                // Exclude hidden/helper windows (the observed helper was 16 x 16).
+                if (width >= 400 && height >= 250 && area > largestArea) {
+                    selected = window;
+                    largestArea = area;
+                }
+            }
+            return true;
+        }, IntPtr.Zero);
+        return selected;
+    }
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+}
+'@
+}
+
 $exe = (Resolve-Path 'editor/lapce/target/debug/CodeStrike.exe').Path
 $fixture = Join-Path $env:RUNNER_TEMP 'codestrike-editor-fixture'
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
@@ -22,60 +64,48 @@ $editor = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $editor) { throw 'Windows did not start the editor process.' }
 
 try {
+    $window = [IntPtr]::Zero
     $windowReady = $false
     for ($attempt = 0; $attempt -lt 120; $attempt++) {
         Start-Sleep -Seconds 1
         $editor.Refresh()
         if ($editor.HasExited) { throw "Editor exited during startup with code $($editor.ExitCode)." }
         if (($attempt % 20) -eq 19) {
-            "CODESTRIKE_WINDOW_WAIT=seconds:$($attempt + 1);pid:$($editor.Id);session:$($editor.SessionId);handle:$($editor.MainWindowHandle)"
+            "CODESTRIKE_WINDOW_WAIT=seconds:$($attempt + 1);pid:$($editor.Id);session:$($editor.SessionId);handle:$($window)"
         }
-        if ($editor.MainWindowHandle -ne [IntPtr]::Zero) {
+        $window = [CodeStrikeWindowProbe]::FindEditorWindow([uint32]$editor.Id)
+        if ($window -ne [IntPtr]::Zero) {
             $windowReady = $true
             break
         }
     }
     if (-not $windowReady) { throw 'No editor window appeared within 120 seconds.' }
     $mode = if ($Startup) { 'startup' } elseif ($File) { 'file' } else { 'folder' }
-    "CODESTRIKE_GUI_PROBE=$mode-window-ready; title=$($editor.MainWindowTitle); handle=$($editor.MainWindowHandle)"
+    "CODESTRIKE_GUI_PROBE=$mode-window-ready; pid=$($editor.Id); handle=$window"
 
     Start-Sleep -Seconds 3
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
-    if (-not ('CodeStrikeWindowProbe' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class CodeStrikeWindowProbe {
-    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
-}
-'@
-    }
-    $focus = New-Object -ComObject WScript.Shell
-    $foreground = $false
-    for ($attempt = 0; $attempt -lt 20; $attempt++) {
-        [CodeStrikeWindowProbe]::ShowWindow($editor.MainWindowHandle, 9) | Out-Null
-        $focus.AppActivate($editor.Id) | Out-Null
-        [CodeStrikeWindowProbe]::SetForegroundWindow($editor.MainWindowHandle) | Out-Null
-        Start-Sleep -Milliseconds 250
-        if ([CodeStrikeWindowProbe]::GetForegroundWindow() -eq $editor.MainWindowHandle) {
-            $foreground = $true
-            break
+    function Set-EditorForeground {
+        param([IntPtr]$window, [int]$processId)
+        $focus = New-Object -ComObject WScript.Shell
+        $foreground = $false
+        for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            [CodeStrikeWindowProbe]::ShowWindow($window, 9) | Out-Null
+            $focus.AppActivate($processId) | Out-Null
+            [CodeStrikeWindowProbe]::SetForegroundWindow($window) | Out-Null
+            Start-Sleep -Milliseconds 250
+            if ([CodeStrikeWindowProbe]::GetForegroundWindow() -eq $window) {
+                $foreground = $true
+                break
+            }
         }
+        if (-not $foreground) { throw 'Editor did not own foreground; refusing an occluded capture.' }
     }
-    if (-not $foreground) { throw 'Editor did not own foreground; refusing an occluded capture.' }
-    "CODESTRIKE_GUI_FOREGROUND=$foreground"
+    Set-EditorForeground -window $window -processId $editor.Id
+    "CODESTRIKE_GUI_FOREGROUND=True;window=$window"
     Start-Sleep -Seconds 2
     if ($File) {
-        if (-not $foreground) { throw 'Editor window could not receive keyboard focus.' }
         $rect = [CodeStrikeWindowProbe+Rect]::new()
-        if (-not [CodeStrikeWindowProbe]::GetWindowRect($editor.MainWindowHandle, [ref]$rect)) {
+        if (-not [CodeStrikeWindowProbe]::GetWindowRect($window, [ref]$rect)) {
             throw 'Could not locate editor window for file interaction.'
         }
         $x = $rect.Left + [int](($rect.Right - $rect.Left) * 0.68)
@@ -92,13 +122,18 @@ public static class CodeStrikeWindowProbe {
         }
         'CODESTRIKE_GUI_FILE_SAVE=passed'
     }
+    Set-EditorForeground -window $window -processId $editor.Id
     $rect = [CodeStrikeWindowProbe+Rect]::new()
-    if (-not [CodeStrikeWindowProbe]::GetWindowRect($editor.MainWindowHandle, [ref]$rect)) {
+    if (-not [CodeStrikeWindowProbe]::GetWindowRect($window, [ref]$rect)) {
         throw 'Cannot locate the editor for an app-only capture.'
     }
-    if ([CodeStrikeWindowProbe]::GetForegroundWindow() -ne $editor.MainWindowHandle) {
+    if ([CodeStrikeWindowProbe]::GetForegroundWindow() -ne $window) {
         throw 'Editor lost foreground before capture.'
     }
+    if (($rect.Right-$rect.Left) -lt 400 -or ($rect.Bottom-$rect.Top) -lt 250) {
+        throw 'Refusing a helper-sized window capture.'
+    }
+    "CODESTRIKE_GUI_CAPTURE_RECT=$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom);window=$window"
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     if ($rect.Left -lt $screen.Left -or $rect.Top -lt $screen.Top -or
         $rect.Right -gt $screen.Right -or $rect.Bottom -gt $screen.Bottom) {

@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $Prepared) { & (Join-Path $PSScriptRoot 'prepare-lapce.ps1') }
 & (Join-Path $PSScriptRoot 'prepare-lapce-format.ps1')
+& (Join-Path $PSScriptRoot 'prepare-lapce-language.ps1')
 $argsForCargo = @('build', '--manifest-path', (Join-Path $root 'editor/lapce/Cargo.toml'), '--locked', '--bin', 'lapce')
 if ($Release) { $argsForCargo += '--release' }
 & cargo @argsForCargo
