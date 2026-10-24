@@ -22,15 +22,16 @@ jobs:
         run: |
           rustup component add rust-analyzer
           rust-analyzer --version
+          Get-FileHash (Get-Command rust-analyzer).Source -Algorithm SHA256
           rustc --version
-      - name: Compare false and true using trusted offline fixtures
+      - name: Replay exact native sequence with and without didSave
         shell: pwsh
-        run: python scripts/analyzer/probe-stock-diagnostics.py --binary (Get-Command rust-analyzer).Source
+        run: python scripts/analyzer/probe-gui-diagnostic-replay.py --binary (Get-Command rust-analyzer).Source
 
       - name: Retain diagnostic comparison evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stock-diagnostic-comparison
-          path: artifacts/stock-diagnostics.json
+          path: artifacts/gui-diagnostic-replay.json
           if-no-files-found: warn
