@@ -1,0 +1,120 @@
+diff --git a/lapce-app/src/app.rs b/lapce-app/src/app.rs
+--- a/lapce-app/src/app.rs
++++ b/lapce-app/src/app.rs
+@@ -73,6 +73,8 @@
+         CommandKind, InternalCommand, LapceCommand, LapceWorkbenchCommand,
+         WindowCommand,
+     },
++    completion::CompletionStatus,
++    completion_observation::selected_row_is_laid_out,
+     config::{
+         LapceConfig, color::LapceColor, icon::LapceIcons, ui::TabSeparatorHeight,
+         watcher::ConfigWatcher,
+@@ -3152,6 +3154,8 @@
+             move || completion_data.with(|c| VectorItems(c.filtered_items.clone())),
+             move |(i, _item)| (request_id(), *i),
+             move |(i, item)| {
++                let row_request = request_id();
++                let row_label = item.item.label.clone();
+                 stack((
+                     container(
+                         text(
+@@ -3220,6 +3224,31 @@
+                     s.align_items(Some(AlignItems::Center))
+                         .width_full()
+                         .height(config.get().editor.line_height() as f32)
++                })
++                .on_resize(move |rect| {
++                    // Observe the actual displayed row after layout, not merely
++                    // an LSP response. No state updates or selection actions.
++                    completion_data.with_untracked(|c| {
++                        if selected_row_is_laid_out(
++                            c.status != CompletionStatus::Inactive,
++                            (c.request_id, c.input_id) == row_request,
++                            c.active.get_untracked(),
++                            i,
++                            rect.width(),
++                            rect.height(),
++                        ) {
++                            tracing::debug!(
++                                target: "lapce_app::completion_observation",
++                                selected_label = ?row_label,
++                                request_id = c.request_id,
++                                input_id = c.input_id,
++                                row = i,
++                                width = rect.width(),
++                                height = rect.height(),
++                                "CodeStrike completion row laid out"
++                            );
++                        }
++                    });
+                 })
+             },
+         )
+diff --git a/lapce-app/src/lib.rs b/lapce-app/src/lib.rs
+--- a/lapce-app/src/lib.rs
++++ b/lapce-app/src/lib.rs
+@@ -5,6 +5,7 @@
+ pub mod code_lens;
+ pub mod command;
+ pub mod completion;
++mod completion_observation;
+ pub mod config;
+ pub mod db;
+ pub mod debug;
+diff --git a/lapce-app/src/completion_observation.rs b/lapce-app/src/completion_observation.rs
+new file mode 100644
+--- /dev/null
++++ b/lapce-app/src/completion_observation.rs
+@@ -0,0 +1,51 @@
++// Pure observation predicate: never changes completion selection or editor state.
++pub(crate) fn selected_row_is_laid_out(
++    active: bool,
++    current_request: bool,
++    selected: usize,
++    row: usize,
++    width: f64,
++    height: f64,
++) -> bool {
++    active
++        && current_request
++        && selected == row
++        && width.is_finite()
++        && height.is_finite()
++        && width > 0.0
++        && height > 0.0
++}
++
++#[cfg(test)]
++mod completion_observation_tests {
++    use super::selected_row_is_laid_out;
++
++    #[test]
++    fn response_without_layout_is_not_ready() {
++        assert!(!selected_row_is_laid_out(true, true, 0, 0, 0.0, 20.0));
++        assert!(!selected_row_is_laid_out(true, true, 0, 0, 200.0, 0.0));
++    }
++
++    #[test]
++    fn inactive_stale_or_unselected_rows_are_not_ready() {
++        assert!(!selected_row_is_laid_out(false, true, 0, 0, 200.0, 20.0));
++        assert!(!selected_row_is_laid_out(true, false, 0, 0, 200.0, 20.0));
++        assert!(!selected_row_is_laid_out(true, true, 1, 0, 200.0, 20.0));
++    }
++
++    #[test]
++    fn invalid_dimensions_are_not_ready() {
++        for dimension in [f64::NAN, f64::INFINITY, -1.0] {
++            assert!(!selected_row_is_laid_out(true, true, 0, 0, dimension, 20.0));
++            assert!(!selected_row_is_laid_out(
++                true, true, 0, 0, 200.0, dimension
++            ));
++        }
++    }
++
++    #[test]
++    fn only_current_selected_laid_out_row_is_ready() {
++        assert!(selected_row_is_laid_out(true, true, 0, 0, 200.0, 20.0));
++        assert!(selected_row_is_laid_out(true, true, 3, 3, 200.0, 20.0));
++    }
++}

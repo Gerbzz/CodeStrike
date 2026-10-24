@@ -27,4 +27,5 @@ jobs:
       - run: python scripts/tests/test_launcher.py
       - run: python scripts/tests/test_reviewed_language_route.py
       - run: python scripts/tests/test_geometric_integration.py
+      - run: python scripts/tests/test_lsp_readiness_contract.py
       - run: cargo test --locked

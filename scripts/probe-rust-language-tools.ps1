@@ -5,14 +5,50 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lsp-probe-finalization.ps1')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 if (-not ('CodeStrikeLspWindow' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class CodeStrikeLspWindow {
+    private static readonly ConcurrentQueue<string> Output = new ConcurrentQueue<string>();
+    private static int characters, ended;
+    private static int overflow;
+    private static void Capture(string line) {
+        if (line == null) { Interlocked.Increment(ref ended); return; }
+        if (Interlocked.Add(ref characters, line.Length) > 16 * 1024 * 1024) {
+            Interlocked.Exchange(ref overflow, 1);
+            return;
+        }
+        Output.Enqueue(line);
+    }
+    public static void BeginCapture(Process process) {
+        Output.Clear(); characters = 0; ended = 0; overflow = 0;
+        process.OutputDataReceived += (sender, e) => Capture(e.Data);
+        process.ErrorDataReceived += (sender, e) => Capture(e.Data);
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+    }
+    public static bool Overflowed() { return Volatile.Read(ref overflow) != 0; }
+    public static bool CaptureEnded() { return Volatile.Read(ref ended) == 2; }
+    public static int OutputCount() { return Output.Count; }
+    public static bool HasOutputLine(string first, string second, int startIndex) {
+        int index = 0;
+        foreach (string line in Output) {
+            if (index++ < startIndex || !line.Contains(first)) continue;
+            string plain = System.Text.RegularExpressions.Regex.Replace(line, @"\x1B\[[0-?]*[ -/]*[@-~]", "");
+            if (plain.Contains(second)) return true;
+        }
+        return false;
+    }
+    public static string CapturedOutput() { return string.Join("\n", Output.ToArray()); }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern uint GetLongPathName(string path, StringBuilder result, uint capacity);
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
@@ -89,12 +125,23 @@ $start.Environment['APPDATA'] = $appData
 $start.Environment['LOCALAPPDATA'] = $localData
 $start.Environment['CARGO_NET_OFFLINE'] = 'true'
 $start.Environment['RA_LOG'] = 'rust_analyzer=info'
-$start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=trace,lapce_app=info'
+$start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=trace,lapce_app=info,lapce_app::completion_observation=debug'
 $process = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $process) { throw 'Windows did not start CodeStrike.' }
-$stdoutTask = $process.StandardOutput.ReadToEndAsync()
-$stderrTask = $process.StandardError.ReadToEndAsync()
+[CodeStrikeLspWindow]::BeginCapture($process)
+function Wait-LspOutput([string]$first, [string]$second, [int]$seconds, [int]$startIndex = 0) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
+    do {
+        if ([CodeStrikeLspWindow]::Overflowed()) { throw 'Synthetic LSP trace exceeded 16 MiB.' }
+        $process.Refresh()
+        if ($process.HasExited) { throw 'CodeStrike exited before LSP readiness.' }
+        if ([CodeStrikeLspWindow]::HasOutputLine($first, $second, $startIndex)) { return }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Timed out waiting for native LSP readiness: $first / $second"
+}
 
+$probeFailure = $null
 try {
     $foundWindow = $false
     for ($attempt = 0; $attempt -lt 120; $attempt++) {
@@ -109,9 +156,9 @@ try {
     if (-not $foundWindow) { throw 'CodeStrike did not expose a window within 120 seconds.' }
     "CODESTRIKE_LSP_WINDOW=opened;pid:$($process.Id)"
 
-    # The local proxy writes LSP traffic to its console stream, not the app log.
-    # Leave enough time for a fresh rust-analyzer crate graph before closing.
-    Start-Sleep -Seconds 45
+    # Cold compiler/sysroot indexing can outlive a fixed startup sleep. Observe
+    # real server readiness before requesting completion; never retry until pass.
+    Wait-LspOutput 'textDocument/publishDiagnostics' 'E0308' 120
     $process.Refresh()
     if ($process.HasExited) { throw "CodeStrike exited before the diagnostic capture: $($process.ExitCode)." }
 
@@ -132,9 +179,13 @@ try {
     [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
     [System.Windows.Forms.SendKeys]::SendWait('{END}')
     [System.Windows.Forms.SendKeys]::SendWait('{LEFT 1}')
+    $completionOutputStart = [CodeStrikeLspWindow]::OutputCount()
     [System.Windows.Forms.SendKeys]::SendWait('^i')
-    Start-Sleep -Seconds 8
     'CODESTRIKE_LSP_COMPLETION_KEYS=sent'
+    # Enter before the selected row is laid out inserts a newline. Require a
+    # fresh native UI layout observation, not just a server completion response.
+    Wait-LspOutput 'CodeStrike completion row laid out' 'selected_label="Read"' 60 $completionOutputStart
+    'CODESTRIKE_LSP_COMPLETION_UI=selected-read-row-laid-out'
 
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     if ($rect.Left -lt $screen.Left -or $rect.Top -lt $screen.Top -or
@@ -196,10 +247,13 @@ try {
     if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
         throw 'CodeStrike did not close cleanly after the diagnostic capture.'
     }
-    if (-not $stdoutTask.Wait(10000) -or -not $stderrTask.Wait(10000)) {
-        throw 'CodeStrike console capture did not complete after exit.'
+    $captureDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not [CodeStrikeLspWindow]::CaptureEnded() -and [DateTime]::UtcNow -lt $captureDeadline) {
+        Start-Sleep -Milliseconds 100
     }
-    $output = $stdoutTask.Result + "`n" + $stderrTask.Result
+    if (-not [CodeStrikeLspWindow]::CaptureEnded()) { throw 'CodeStrike console capture did not complete after exit.' }
+    if ([CodeStrikeLspWindow]::Overflowed()) { throw 'Synthetic LSP trace exceeded 16 MiB.' }
+    $output = [CodeStrikeLspWindow]::CapturedOutput()
     [IO.File]::WriteAllText((Join-Path $evidence 'synthetic-fixture-lsp.log'), $output)
     "CODESTRIKE_LSP_OBSERVATION_END_UTC=$([DateTime]::UtcNow.ToString('o'))"
     if (-not $output.Contains('"method":"initialize"')) {
@@ -224,13 +278,62 @@ try {
         throw 'CodeStrike did not receive the expected Rust Read completion.'
     }
     'CODESTRIKE_LSP_COMPLETION=rust-read-passed'
+} catch {
+    $probeFailure = $_
+    throw
 } finally {
-    $process.Refresh()
-    if (-not $process.HasExited) {
-        if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
-            $process.Kill($true)
-            $process.WaitForExit(10000) | Out-Null
+    $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+    # Retain genuine pixels on a readiness timeout as well as the raw trace and
+    # saved bytes. Evidence errors must not suppress the original gate failure.
+    Invoke-LspCleanupStep 'failure screenshot' {
+        $process.Refresh()
+        if (-not (Test-Path (Join-Path $evidence 'completion.jpg')) -and -not $process.HasExited) {
+            $failureRect = [CodeStrikeLspWindow+Rect]::new()
+            if ([CodeStrikeLspWindow]::GetWindowRect($process.MainWindowHandle, [ref]$failureRect)) {
+                $failureWidth = $failureRect.Right - $failureRect.Left
+                $failureHeight = $failureRect.Bottom - $failureRect.Top
+                if ($failureWidth -ge 300 -and $failureHeight -ge 250) {
+                    $failureBitmap = [System.Drawing.Bitmap]::new($failureWidth, $failureHeight)
+                    $failureGraphics = [System.Drawing.Graphics]::FromImage($failureBitmap)
+                    try {
+                        $failureGraphics.CopyFromScreen([System.Drawing.Point]::new($failureRect.Left, $failureRect.Top), [System.Drawing.Point]::Empty, $failureBitmap.Size)
+                        $failureBitmap.Save((Join-Path $evidence 'failure.png'))
+                    } finally {
+                        $failureGraphics.Dispose()
+                        $failureBitmap.Dispose()
+                    }
+                }
+            }
         }
-    }
-    $process.Dispose()
+    } $cleanupFailures
+    Invoke-LspCleanupStep 'close native process' {
+        $process.Refresh()
+        if (-not $process.HasExited) {
+            $process.CloseMainWindow() | Out-Null
+            $process.WaitForExit(15000) | Out-Null
+        }
+    } $cleanupFailures
+    Invoke-LspCleanupStep 'terminate remaining native process' {
+        $process.Refresh()
+        if (-not $process.HasExited) {
+            $process.Kill($true)
+            if (-not $process.WaitForExit(10000)) { throw 'Native process did not terminate.' }
+        }
+    } $cleanupFailures
+    Invoke-LspCleanupStep 'drain console capture' {
+        $captureDeadline = [DateTime]::UtcNow.AddSeconds(10)
+        while (-not [CodeStrikeLspWindow]::CaptureEnded() -and [DateTime]::UtcNow -lt $captureDeadline) {
+            Start-Sleep -Milliseconds 100
+        }
+        if (-not [CodeStrikeLspWindow]::CaptureEnded()) { throw 'Console capture did not end.' }
+        if ([CodeStrikeLspWindow]::Overflowed()) { throw 'Synthetic LSP trace exceeded its bound.' }
+    } $cleanupFailures
+    Invoke-LspCleanupStep 'retain raw trace' {
+        [IO.File]::WriteAllText((Join-Path $evidence 'synthetic-fixture-lsp.log'), [CodeStrikeLspWindow]::CapturedOutput())
+    } $cleanupFailures
+    Invoke-LspCleanupStep 'retain saved source' {
+        [IO.File]::WriteAllBytes((Join-Path $evidence 'saved-source.rs'), [IO.File]::ReadAllBytes($source))
+    } $cleanupFailures
+    Invoke-LspCleanupStep 'dispose process' { $process.Dispose() } $cleanupFailures
+    Complete-LspCleanup $probeFailure $cleanupFailures
 }

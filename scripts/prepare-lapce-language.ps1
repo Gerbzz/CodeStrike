@@ -9,7 +9,18 @@ if ($LASTEXITCODE -ne 0) {
     & git -C $source apply --reverse --check -- $patch
     if ($LASTEXITCODE -ne 0) { throw 'Save-capability overlay does not match the prepared Lapce source.' }
     Write-Output 'Lapce save-capability overlay already present.'
-    exit 0
+} else {
+    & git -C $source apply -- $patch
+    if ($LASTEXITCODE -ne 0) { throw 'Lapce save-capability overlay failed.' }
 }
-& git -C $source apply -- $patch
-if ($LASTEXITCODE -ne 0) { throw 'Lapce save-capability overlay failed.' }
+# Purely observational completion-row logging, with no selection/state changes.
+$patch = Join-Path $root 'editor/patches/codestrike-completion-observation.patch'
+& git -C $source apply --check -- $patch
+if ($LASTEXITCODE -ne 0) {
+    & git -C $source apply --reverse --check -- $patch
+    if ($LASTEXITCODE -ne 0) { throw 'Completion observation overlay does not match prepared Lapce source.' }
+    Write-Output 'Lapce completion observation overlay already present.'
+} else {
+    & git -C $source apply -- $patch
+    if ($LASTEXITCODE -ne 0) { throw 'Lapce completion observation overlay failed.' }
+}
