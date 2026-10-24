@@ -13,7 +13,13 @@
   </picture></a>
 </p>
 
-> **Lapce-only engineering preview — source build only.** CodeStrike now uses the preserved, patched Lapce editor as its only application. The pre-Lapce desktop is retired. Existing Lapce customizations and analyzer work remain intact; this cutover does not claim DeltaDB integration, a new UI, an installer or a release.
+> **Lapce-only engineering preview — source build only.** CodeStrike now uses the preserved, patched Lapce editor as its only application. The pre-Lapce desktop is retired. Existing Lapce customizations and analyzer work remain intact; this cutover does not claim collaboration integration, a new UI, an installer or a release.
+
+## Rust direction and migration status
+
+- **Target:** Maintain CodeStrike as a direct-source Rust fork of Lapce, preserving upstream history and useful existing changes, with independently implemented Rust collaboration capabilities—not proprietary Delta code or restricted captures.
+- **Current implementation:** Published `main` routes only to the pinned, patched [`editor/lapce`](editor/UPSTREAM.md) submodule. The maintained direct-source fork is currently local and unpublished; it is not the source layout available on `main` yet.
+- **Remaining migration:** Publish the reviewed direct-source fork through an authorized history-preserving route, then integrate and verify independent collaboration work. Local component tests do not establish integrated collaboration, recovery, packaging, or release readiness.
 
 <p align="center"><a href="#editor">Editor</a> | <a href="#build-and-run">Build and run</a> | <a href="#status-and-roadmap">Status</a> | <a href="#source-and-attribution">Attribution</a></p>
 
@@ -125,7 +131,7 @@ and default bundling/installer acceptance remains unfinished.
 | --- | --- |
 | Files, tabs, search and replacement | Existing candidate implementation preserved; exact historical test evidence below and in the acceptance matrix |
 | Language tooling | Reviewed analyzer source and probes preserved; packaging and current-head acceptance remain separate gates |
-| Delta/DeltaDB and collaboration | Existing agent donor branch preserved; integration and licensing verification are separate work, not delivered by this cutover |
+| Independent Rust collaboration | Planned for the maintained Lapce fork; local component work is not an integrated or published capability |
 | Distribution | Source build only; no installer or release |
 
 `cargo run --locked --bin codestrike -- <editor arguments>` delegates only to the prepared debug Lapce executable. It fails clearly if that executable has not been built. Set `CODESTRIKE_EDITOR` to an explicit release/custom build path if needed. Arguments are passed directly, never through a shell.
