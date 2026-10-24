@@ -117,10 +117,14 @@ try {
         [System.Windows.Forms.SendKeys]::SendWait('codestrike_ci_saved')
         [System.Windows.Forms.SendKeys]::SendWait('^s')
         Start-Sleep -Seconds 2
-        if (-not ([System.IO.File]::ReadAllText($sourceFile).Contains('codestrike_ci_saved'))) {
-            throw 'Keyboard edit/save did not reach the opened fixture file.'
+        $savedSource = [System.IO.File]::ReadAllText($sourceFile)
+        $fileSavePassed = $savedSource.Contains('codestrike_ci_saved')
+        if ($fileSavePassed) { 'CODESTRIKE_GUI_FILE_SAVE=passed' }
+        else {
+            # Preserve synthetic source and app pixels before the unchanged gate fails.
+            "CODESTRIKE_GUI_FILE_SAVE_SOURCE=$($savedSource | ConvertTo-Json -Compress)"
+            "CODESTRIKE_GUI_FILE_SAVE_FOREGROUND=$([CodeStrikeWindowProbe]::GetForegroundWindow());expected=$window"
         }
-        'CODESTRIKE_GUI_FILE_SAVE=passed'
     }
     Set-EditorForeground -window $window -processId $editor.Id
     $rect = [CodeStrikeWindowProbe+Rect]::new()
@@ -166,6 +170,9 @@ try {
     } finally {
         $graphics.Dispose()
         $bitmap.Dispose()
+    }
+    if ($File -and -not $fileSavePassed) {
+        throw 'Keyboard edit/save did not reach the opened fixture file.'
     }
 } finally {
     $editor.Refresh()
