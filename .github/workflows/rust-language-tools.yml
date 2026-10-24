@@ -73,6 +73,7 @@ jobs:
         shell: pwsh
         run: |
           .\scripts\prepare-lapce.ps1
+          .\scripts\prepare-lapce-format.ps1
           cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
@@ -84,3 +85,11 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: .\scripts\probe-missing-rust-server.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
+
+      - name: Preserve genuine synthetic-fixture LSP trace and capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codestrike-native-lsp-evidence
+          path: artifacts/lsp-native/**
+          if-no-files-found: warn

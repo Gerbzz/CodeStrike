@@ -48,6 +48,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class CodeStrikeWindowProbe {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
@@ -56,8 +57,19 @@ public static class CodeStrikeWindowProbe {
 }
 '@
     }
-    [CodeStrikeWindowProbe]::ShowWindow($editor.MainWindowHandle, 9) | Out-Null
-    $foreground = [CodeStrikeWindowProbe]::SetForegroundWindow($editor.MainWindowHandle)
+    $focus = New-Object -ComObject WScript.Shell
+    $foreground = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        [CodeStrikeWindowProbe]::ShowWindow($editor.MainWindowHandle, 9) | Out-Null
+        $focus.AppActivate($editor.Id) | Out-Null
+        [CodeStrikeWindowProbe]::SetForegroundWindow($editor.MainWindowHandle) | Out-Null
+        Start-Sleep -Milliseconds 250
+        if ([CodeStrikeWindowProbe]::GetForegroundWindow() -eq $editor.MainWindowHandle) {
+            $foreground = $true
+            break
+        }
+    }
+    if (-not $foreground) { throw 'Editor did not own foreground; refusing an occluded capture.' }
     "CODESTRIKE_GUI_FOREGROUND=$foreground"
     Start-Sleep -Seconds 2
     if ($File) {
@@ -80,7 +92,19 @@ public static class CodeStrikeWindowProbe {
         }
         'CODESTRIKE_GUI_FILE_SAVE=passed'
     }
-    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $rect = [CodeStrikeWindowProbe+Rect]::new()
+    if (-not [CodeStrikeWindowProbe]::GetWindowRect($editor.MainWindowHandle, [ref]$rect)) {
+        throw 'Cannot locate the editor for an app-only capture.'
+    }
+    if ([CodeStrikeWindowProbe]::GetForegroundWindow() -ne $editor.MainWindowHandle) {
+        throw 'Editor lost foreground before capture.'
+    }
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    if ($rect.Left -lt $screen.Left -or $rect.Top -lt $screen.Top -or
+        $rect.Right -gt $screen.Right -or $rect.Bottom -gt $screen.Bottom) {
+        throw 'Editor capture rectangle is off-screen.'
+    }
+    $bounds = [System.Drawing.Rectangle]::new($rect.Left, $rect.Top, $rect.Right-$rect.Left, $rect.Bottom-$rect.Top)
     $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
