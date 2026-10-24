@@ -37,6 +37,9 @@ def main():
     for enabled in (False, True):
         with tempfile.TemporaryDirectory(prefix='codestrike-stock-diagnostics-') as temporary:
             root, source, _ = fixture(temporary)
+            # Windows temp paths may use 8.3 names; compare the canonical file URI.
+            root, source = root.resolve(), source.resolve()
+            print(json.dumps({'expected_uri': source.as_uri()}), flush=True)
             config = options(enabled)
             print(json.dumps({'started_utc': datetime.now(timezone.utc).isoformat(), 'configuration': config}), flush=True)
             client = ConfiguredClient(args.binary, root, config)
