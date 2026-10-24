@@ -17,19 +17,19 @@
 
 <p align="center"><a href="#editor">Editor</a> | <a href="#build-and-run">Build and run</a> | <a href="#status-and-roadmap">Status</a> | <a href="#source-and-attribution">Attribution</a></p>
 
-![CodeStrike Lapce branding candidate: genuine Windows startup with the geometric source-scope mark](assets/screenshots/codestrike-native-startup-2026-10-21.png)
+![CodeStrike Lapce branding candidate: genuine Windows startup with the geometric source-scope mark](assets/screenshots/codestrike-native-startup-2026-10-24.png)
 
-*Lapce-based branding candidate at [`e61517b`](https://github.com/Gerbzz/CodeStrike/commit/e61517b15f09f6860a06595fda44ca73c87f8d68), captured from a native Windows build. This candidate is developed in [PR #8](https://github.com/Gerbzz/CodeStrike/pull/8); it predates this Lapce-only routing change and is not a released build. [Capture provenance and limits](docs/NATIVE_BRANDING_CAPTURES.md).*
+*Genuine Windows startup from the preserved geometric-identity integration at [`a5f77b9`](https://github.com/Gerbzz/CodeStrike/commit/a5f77b95794ba2413548fd99c3e9124899853008), captured by [native run 40054421622](https://github.com/Gerbzz/CodeStrike/actions/runs/40054421622). This is the selected Lapce-based source build, not an installer or release. [Current capture provenance and limits](docs/NATIVE_BRANDING_20261024.md).*
 
 ## Editor
 
-CodeStrike is the [pinned Lapce-based editor](editor/UPSTREAM.md), with the existing CodeStrike patch, guarded-save and workspace replacement improvements. It is not a new editor rewrite. The retained images document their original source revisions, not fresh acceptance of every subsequent commit.
+CodeStrike is the [pinned Lapce-based editor](editor/UPSTREAM.md), with the existing CodeStrike patch, guarded-save and workspace replacement improvements. It is not a new editor rewrite. The current startup/About captures below document their exact source revision; the older feature captures remain explicitly historical.
 
-![CodeStrike candidate native About view showing its geometric mark and retained Lapce and Codicons credits](assets/screenshots/codestrike-native-about-2026-10-21.png)
+![CodeStrike candidate native About view showing its geometric mark and retained Lapce and Codicons credits](assets/screenshots/codestrike-native-about-2026-10-24.png)
 
-*Native startup and About at commit `e61517b15f09f6860a06595fda44ca73c87f8d68`, captured by [run 39693959159](https://github.com/Gerbzz/CodeStrike/actions/runs/39693959159). The captures contain an empty editor and idle runner terminal, not a user project. They establish appearance for that candidate build, not editing, language-tool, taskbar or installed-app acceptance. [Original bytes, hashes and checks](docs/NATIVE_BRANDING_CAPTURES.md).*
+*Fresh native startup and About capture at `a5f77b95794ba2413548fd99c3e9124899853008`, with the existing reviewed geometric mark and retained Lapce/Codicons credits. All seven executable icon payloads and the real native small-window icon pixels matched the reviewed ICO. [Original pixels, hashes and limits](docs/NATIVE_BRANDING_20261024.md).*
 
-The candidate still needs crash-interruption and cross-session recovery tests, automatic cleanup of visible backups, broader search/replace cases, current-head language-tool verification, accessibility review, and clean-machine installation. It is not yet a distribution.
+The candidate still needs crash-interruption and cross-session recovery tests, automatic cleanup of visible backups, broader search/replace cases, continued exact-head language-tool verification, accessibility review, and clean-machine installation. It is not yet a distribution.
 
 <details>
 <summary>Historical candidate workflow screenshots</summary>
