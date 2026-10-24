@@ -1,14 +1,21 @@
-name: CodeStrike editor candidate
+name: CodeStrike Lapce editor
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
-    branches: [draft/lapce-foundation-migration]
+    branches: [main]
     paths:
       - .github/workflows/editor-candidate.yml
       - .gitmodules
       - editor/**
       - scripts/prepare-lapce.ps1
+      - scripts/prepare-lapce-format.ps1
+      - scripts/build-codestrike.ps1
+      - src/main.rs
+      - Cargo.toml
+      - scripts/tests/**
       - scripts/probe-windows-editor.ps1
       - scripts/probe-editor-acceptance.ps1
 
@@ -16,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: codestrike-editor-candidate
+  group: codestrike-editor-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -53,6 +60,12 @@ jobs:
       - name: Prepare local CodeStrike candidate
         shell: pwsh
         run: .\scripts\prepare-lapce.ps1
+      - name: Apply formatting-only overlay without replacing donor patch
+        shell: pwsh
+        run: .\scripts\prepare-lapce-format.ps1
+      - name: Apply reviewed dynamic save registration repair
+        shell: pwsh
+        run: .\scripts\prepare-lapce-language.ps1
       - name: Verify formatting
         shell: pwsh
         run: cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check
@@ -80,6 +93,10 @@ jobs:
           .\scripts\probe-windows-editor.ps1 -Startup
           .\scripts\probe-windows-editor.ps1
           .\scripts\probe-windows-editor.ps1 -File
+      - name: Test static and dynamic LSP save capability precedence
+        shell: pwsh
+        if: always() && steps.compile.outcome == 'success'
+        run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy save_capability_tests --lib
       - name: Test save and conflict protection
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
@@ -112,3 +129,13 @@ jobs:
         shell: pwsh
         if: always() && steps.compile.outcome == 'success'
         run: .\scripts\probe-editor-acceptance.ps1 -Scenario CleanReload
+
+      - name: Upload genuine native acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codestrike-lapce-native-evidence
+          path: |
+            artifacts/**
+            editor/lapce/target/debug/*.png
+          if-no-files-found: warn

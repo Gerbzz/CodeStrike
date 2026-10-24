@@ -1,4 +1,8 @@
-param([Parameter(Mandatory = $true)][string]$VoltPath)
+param(
+    [Parameter(Mandatory = $true)][string]$VoltPath,
+    [Parameter(Mandatory = $true)][string]$AnalyzerPath,
+    [string]$EvidenceDirectory = (Join-Path $PSScriptRoot '../artifacts/lsp-native')
+)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -7,7 +11,9 @@ if (-not ('CodeStrikeLspWindow' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class CodeStrikeLspWindow {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern uint GetLongPathName(string path, StringBuilder result, uint capacity);
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
@@ -20,6 +26,14 @@ public static class CodeStrikeLspWindow {
 
 $exe = (Resolve-Path 'editor/lapce/target/debug/CodeStrike.exe').Path
 $volt = (Resolve-Path -LiteralPath $VoltPath).Path
+$analyzer = (Resolve-Path -LiteralPath $AnalyzerPath).Path
+$analyzerVersion = @(& $analyzer --version)
+if ($LASTEXITCODE -ne 0) { throw 'Selected analyzer version check failed.' }
+"CODESTRIKE_LSP_ANALYZER_VERSION=$($analyzerVersion -join ' ')"
+"CODESTRIKE_LSP_ANALYZER_PATH=$analyzer"
+"CODESTRIKE_LSP_ANALYZER_SHA256=$((Get-FileHash -LiteralPath $analyzer -Algorithm SHA256).Hash)"
+# TOML basic strings use JSON-compatible escaping for this absolute Windows path.
+$analyzerToml = ConvertTo-Json -InputObject $analyzer -Compress
 $root = Join-Path $env:RUNNER_TEMP ('codestrike-rust-lsp-' + [guid]::NewGuid().ToString('N'))
 $fixture = Join-Path $root 'fixture'
 $appData = Join-Path $root 'appdata'
@@ -27,6 +41,17 @@ $localData = Join-Path $root 'localdata'
 $src = Join-Path $fixture 'src'
 $workspaceSettings = Join-Path $fixture '.codestrike'
 New-Item -ItemType Directory -Path $src, $workspaceSettings, $appData, $localData -Force | Out-Null
+# Expand Windows 8.3 aliases before constructing workspace/file URIs.
+$longPath = [System.Text.StringBuilder]::new(32768)
+$length = [CodeStrikeLspWindow]::GetLongPathName($root, $longPath, 32768)
+if ($length -eq 0 -or $length -ge 32768) { throw 'Cannot resolve canonical fixture path.' }
+$root = $longPath.ToString()
+$fixture = Join-Path $root 'fixture'
+$appData = Join-Path $root 'appdata'
+$localData = Join-Path $root 'localdata'
+$src = Join-Path $fixture 'src'
+$workspaceSettings = Join-Path $fixture '.codestrike'
+
 
 [System.IO.File]::WriteAllText((Join-Path $fixture 'Cargo.toml'), @'
 [package]
@@ -38,11 +63,17 @@ $source = Join-Path $src 'main.rs'
 $expectedSource = "use std::io::Read;`nfn main() { let value: i32 = `"wrong`"; println!(`"{value}`"); }"
 $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($expectedSource)
 [System.IO.File]::WriteAllText($source, $expectedSource.Replace('::Read;', '::Re;'))
-[System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @'
+[System.IO.File]::WriteAllText((Join-Path $workspaceSettings 'settings.toml'), @"
 [lapce-rust]
-serverPath = "rust-analyzer"
+serverPath = $analyzerToml
 checkOnSave = false
-'@)
+"@)
+
+$evidence = $EvidenceDirectory
+New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+"CODESTRIKE_LSP_FIXTURE_UTC=$([DateTime]::UtcNow.ToString('o'));workspace=$fixture;source=$source"
+"CODESTRIKE_LSP_SOURCE_URI=$(([Uri]$source).AbsoluteUri)"
+"CODESTRIKE_LSP_CONFIG=serverPath:$analyzer;checkOnSave:false;CARGO_NET_OFFLINE:true"
 
 $start = [System.Diagnostics.ProcessStartInfo]::new($exe)
 $start.ArgumentList.Add('--wait')
@@ -57,7 +88,8 @@ $start.RedirectStandardError = $true
 $start.Environment['APPDATA'] = $appData
 $start.Environment['LOCALAPPDATA'] = $localData
 $start.Environment['CARGO_NET_OFFLINE'] = 'true'
-$start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=debug,lapce_app=info'
+$start.Environment['RA_LOG'] = 'rust_analyzer=info'
+$start.Environment['LAPCE_LOG'] = 'lapce_proxy::plugin=trace,lapce_app=info'
 $process = [System.Diagnostics.Process]::Start($start)
 if ($null -eq $process) { throw 'Windows did not start CodeStrike.' }
 $stdoutTask = $process.StandardOutput.ReadToEndAsync()
@@ -124,6 +156,7 @@ try {
                     [System.Drawing.Imaging.Encoder]::Quality, [int64]45)
                 $small.Save($stream, $codec, $parameters)
                 if ($stream.Length -gt 350KB) { throw 'LSP screenshot exceeded its log bound.' }
+                [IO.File]::WriteAllBytes((Join-Path $evidence "completion.jpg"), $stream.ToArray())
                 "CODESTRIKE_LSP_SCREENSHOT_BASE64=$([Convert]::ToBase64String($stream.ToArray()))"
             } finally { $stream.Dispose() }
         } finally { $small.Dispose() }
@@ -155,6 +188,10 @@ try {
         throw "Completion selection did not save the expected UTF-8 bytes; actual SHA-256: $actualHash"
     }
     'CODESTRIKE_LSP_COMPLETION_INSERTION=read-saved-exact-utf8-bytes'
+    # Completion and diagnostics are asynchronous: allow the native publication
+    # to reach the proxy before closing its console stream. The E0308 assertion
+    # below remains mandatory, and this wait is bounded.
+    Start-Sleep -Seconds 30
 
     if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
         throw 'CodeStrike did not close cleanly after the diagnostic capture.'
@@ -163,6 +200,8 @@ try {
         throw 'CodeStrike console capture did not complete after exit.'
     }
     $output = $stdoutTask.Result + "`n" + $stderrTask.Result
+    [IO.File]::WriteAllText((Join-Path $evidence 'synthetic-fixture-lsp.log'), $output)
+    "CODESTRIKE_LSP_OBSERVATION_END_UTC=$([DateTime]::UtcNow.ToString('o'))"
     if (-not $output.Contains('"method":"initialize"')) {
         throw 'No rust-analyzer initialize request was found in the CodeStrike console stream.'
     }

@@ -1,0 +1,172 @@
+--- a/lapce-proxy/src/plugin/psp.rs
++++ b/lapce-proxy/src/plugin/psp.rs
+@@ -863,6 +863,20 @@
+     }
+ 
+     fn check_save_capability(&self, language_id: &str, path: &Path) -> (bool, bool) {
++        // Dynamic registration supplies the current options for matching
++        // documents even when static textDocumentSync omits `save`.
++        if let Some(options) = self.server_registrations.save.as_ref() {
++            for filter in options.filters.iter() {
++                if (filter.language_id.is_none()
++                    || filter.language_id.as_deref() == Some(language_id))
++                    && (filter.pattern.is_none()
++                        || filter.pattern.as_ref().unwrap().is_match(path))
++                {
++                    return (true, options.include_text);
++                }
++            }
++        }
++
+         if self.document_supported(Some(language_id), Some(path)) {
+             let (should_send, include_text) = self
+                 .server_capabilities
+@@ -883,18 +897,6 @@
+                 })
+                 .unwrap_or((false, false));
+             return (should_send, include_text);
+-        }
+-
+-        if let Some(options) = self.server_registrations.save.as_ref() {
+-            for filter in options.filters.iter() {
+-                if (filter.language_id.is_none()
+-                    || filter.language_id.as_deref() == Some(language_id))
+-                    && (filter.pattern.is_none()
+-                        || filter.pattern.as_ref().unwrap().is_match(path))
+-                {
+-                    return (true, options.include_text);
+-                }
+-            }
+         }
+ 
+         (false, false)
+@@ -1448,3 +1450,129 @@
+         ) => &options.semantic_tokens_options.legend,
+     }
+ }
++
++#[cfg(test)]
++mod save_capability_tests {
++    use super::*;
++    use serde_json::json;
++
++    fn host(save: Option<Value>) -> PluginHostHandler {
++        let core = CoreRpcHandler::new();
++        let catalog = PluginCatalogRpcHandler::new(
++            core.clone(),
++            lapce_rpc::proxy::ProxyRpcHandler::new(),
++        );
++        let volt = VoltID {
++            author: "test".into(),
++            name: "save".into(),
++        };
++        let (tx, _rx) = crossbeam_channel::unbounded();
++        let server = PluginServerRpcHandler::new(volt.clone(), None, None, tx);
++        let mut host = PluginHostHandler::new(
++            None,
++            None,
++            volt,
++            "Save test".into(),
++            serde_json::from_value(json!([{"language":"rust"}])).unwrap(),
++            core,
++            server,
++            catalog,
++        );
++        let mut sync = json!({"openClose":true,"change":2});
++        if let Some(save) = save {
++            sync["save"] = save;
++        }
++        host.server_capabilities =
++            serde_json::from_value(json!({"textDocumentSync":sync})).unwrap();
++        host
++    }
++    fn register(host: &mut PluginHostHandler, include_text: bool, selector: Value) {
++        host.register_capability(
++            serde_json::from_value(json!({
++                "id":"textDocument/didSave", "method":"textDocument/didSave",
++                "registerOptions":{"documentSelector":selector,"includeText":include_text}
++            }))
++            .unwrap(),
++        )
++        .unwrap();
++    }
++    #[test]
++    fn dynamic_save_works_when_supported_document_has_no_static_save() {
++        let mut host = host(None);
++        assert_eq!(
++            host.check_save_capability("rust", Path::new("src/main.rs")),
++            (false, false)
++        );
++        register(&mut host, false, json!([{"pattern":"**/*.rs"}]));
++        assert_eq!(
++            host.check_save_capability("rust", Path::new("src/main.rs")),
++            (true, false)
++        );
++    }
++    #[test]
++    fn dynamic_selector_mismatch_does_not_enable_save() {
++        let mut host = host(None);
++        register(
++            &mut host,
++            true,
++            json!([{"language":"rust","pattern":"**/*.rs"}]),
++        );
++        assert_eq!(
++            host.check_save_capability("rust", Path::new("src/main.py")),
++            (false, false)
++        );
++        assert_eq!(
++            host.check_save_capability("python", Path::new("src/main.rs")),
++            (false, false)
++        );
++    }
++    #[test]
++    fn matching_dynamic_options_take_precedence_and_replacement_is_observed() {
++        let mut host = host(Some(json!({"includeText":true})));
++        register(&mut host, false, json!([{"language":"rust"}]));
++        assert_eq!(
++            host.check_save_capability("rust", Path::new("src/main.rs")),
++            (true, false)
++        );
++        register(&mut host, true, json!([{"language":"rust"}]));
++        assert_eq!(
++            host.check_save_capability("rust", Path::new("src/main.rs")),
++            (true, true)
++        );
++        register(&mut host, false, json!([{"language":"python"}]));
++        assert_eq!(
++            host.check_save_capability("rust", Path::new("src/main.rs")),
++            (true, true)
++        );
++    }
++    #[test]
++    fn static_only_semantics_are_preserved() {
++        for (save, expected) in [
++            (None, (false, false)),
++            (Some(json!(false)), (false, true)),
++            (Some(json!(true)), (true, true)),
++            (Some(json!({})), (true, false)),
++            (Some(json!({"includeText":false})), (true, false)),
++            (Some(json!({"includeText":true})), (true, true)),
++        ] {
++            let host = host(save);
++            assert_eq!(
++                host.check_save_capability("rust", Path::new("src/main.rs")),
++                expected
++            );
++            assert_eq!(
++                host.check_save_capability("python", Path::new("src/main.py")),
++                (false, false)
++            );
++        }
++    }
++    #[test]
++    fn dynamically_registered_other_documents_still_receive_save() {
++        let mut host = host(None);
++        register(&mut host, false, json!([{"pattern":"**/Cargo.toml"}]));
++        assert_eq!(
++            host.check_save_capability("toml", Path::new("project/Cargo.toml")),
++            (true, false)
++        );
++    }
++}

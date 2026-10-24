@@ -1,0 +1,29 @@
+name: CodeStrike Lapce-only contracts
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Preserve exact source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/tests/test_lapce_cutover.py
+      - run: python scripts/tests/test_launcher.py
+      - run: python scripts/tests/test_reviewed_language_route.py
+      - run: cargo test --locked

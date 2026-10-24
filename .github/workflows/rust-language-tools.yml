@@ -11,6 +11,9 @@ on:
       - scripts/prepare-lapce.ps1
       - scripts/probe-rust-language-tools.ps1
       - scripts/probe-missing-rust-server.ps1
+      - scripts/analyzer/build-reviewed-analyzer.ps1
+      - scripts/analyzer/prepare-reviewed-source.ps1
+      - third_party/rust-analyzer/**
   pull_request:
     branches: [main]
     paths:
@@ -20,6 +23,9 @@ on:
       - scripts/prepare-lapce.ps1
       - scripts/probe-rust-language-tools.ps1
       - scripts/probe-missing-rust-server.ps1
+      - scripts/analyzer/build-reviewed-analyzer.ps1
+      - scripts/analyzer/prepare-reviewed-source.ps1
+      - third_party/rust-analyzer/**
 
 concurrency:
   group: codestrike-rust-lsp-${{ github.event.pull_request.number || github.ref }}
@@ -31,7 +37,7 @@ permissions:
 jobs:
   windows-rust-lsp:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CARGO_INCREMENTAL: '0'
       CARGO_BUILD_JOBS: '2'
@@ -51,14 +57,23 @@ jobs:
           path: rust-volt-source
           fetch-depth: 1
           persist-credentials: false
-      - name: Install local rust-analyzer and WASI build target
+      - uses: actions/checkout@v4
+        with:
+          repository: rust-lang/rust-analyzer
+          ref: a0b58c0fe3e924302c1155e88c4a9454f86280c2
+          path: pinned-analyzer
+          persist-credentials: false
+      - name: Install declared analyzer toolchain and WASI build target
         shell: pwsh
         run: |
-          rustup component add rust-analyzer
+          rustup toolchain install 1.97.1 --profile minimal --component rust-src --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Reviewed analyzer toolchain installation failed.' }
           rustup target add wasm32-wasip1
-          rust-analyzer --version
           rustc --version
           git -C rust-volt-source rev-parse HEAD
+      - name: Build and test the explicitly selected reviewed analyzer
+        shell: pwsh
+        run: .\scripts\analyzer\build-reviewed-analyzer.ps1 -SourcePath pinned-analyzer -TargetDirectory (Join-Path $env:RUNNER_TEMP 'reviewed-analyzer-target')
       - name: Build the pinned Apache-2.0 Rust Volt
         shell: pwsh
         run: |
@@ -73,14 +88,35 @@ jobs:
         shell: pwsh
         run: |
           .\scripts\prepare-lapce.ps1
+          .\scripts\prepare-lapce-format.ps1
+          .\scripts\prepare-lapce-language.ps1
           cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
           "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
-      - name: Verify Rust diagnostics and saved completion insertion in the GUI
+      # Fixed three-run acceptance, not retry-until-pass: every step is required.
+      # Each invocation creates a fresh GUID fixture and uses the same built binary.
+      - name: Verify native Rust diagnostics and saved completion (1 of 3)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
-        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
+        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt') -AnalyzerPath (Join-Path $env:RUNNER_TEMP 'reviewed-analyzer-target/debug/rust-analyzer.exe') -EvidenceDirectory 'artifacts/lsp-native/attempt-1'
+      - name: Verify native Rust diagnostics and saved completion (2 of 3)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt') -AnalyzerPath (Join-Path $env:RUNNER_TEMP 'reviewed-analyzer-target/debug/rust-analyzer.exe') -EvidenceDirectory 'artifacts/lsp-native/attempt-2'
+      - name: Verify native Rust diagnostics and saved completion (3 of 3)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt') -AnalyzerPath (Join-Path $env:RUNNER_TEMP 'reviewed-analyzer-target/debug/rust-analyzer.exe') -EvidenceDirectory 'artifacts/lsp-native/attempt-3'
       - name: Verify visible unavailable-server behavior and source integrity
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: .\scripts\probe-missing-rust-server.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
+
+      - name: Preserve genuine synthetic-fixture LSP trace and capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codestrike-native-lsp-evidence
+          path: artifacts/lsp-native/**
+          if-no-files-found: warn

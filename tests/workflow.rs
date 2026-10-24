@@ -18,7 +18,13 @@ fn explicit_cargo_cancellation_stops_a_new_child() {
     std::fs::write(root.join("Cargo.toml"), "[package]\nname='cancel-fixture'\nversion='0.1.0'\nedition='2024'\n").unwrap();
     let cancelled = AtomicBool::new(true);
     let result = run_cargo_with_control(&root, CargoAction::Check, &cancelled, Duration::from_secs(10));
-    assert!(result.unwrap_err().to_string().contains("cancelled"));
+    let error = result.unwrap_err().to_string();
+    if cfg!(windows) {
+        assert!(error.contains("cancelled"));
+    } else {
+        // The preserved support core deliberately refuses unsafe process execution.
+        assert!(error.contains("process-tree isolation unavailable"));
+    }
 }
 
 #[test]
@@ -105,7 +111,12 @@ fn bounded_workspace_search_and_cargo_diagnostic() {
         )
         .is_err()
     );
-    let report = run_cargo(&root, CargoAction::Check).unwrap();
+    let result = run_cargo(&root, CargoAction::Check);
+    if !cfg!(windows) {
+        assert!(result.unwrap_err().to_string().contains("process-tree isolation unavailable"));
+        return;
+    }
+    let report = result.unwrap();
     assert!(!report.success);
     assert!(
         report
