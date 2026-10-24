@@ -1,4 +1,7 @@
-param([Parameter(Mandatory = $true)][string]$VoltPath)
+param(
+    [Parameter(Mandatory = $true)][string]$VoltPath,
+    [string]$EvidenceDirectory = (Join-Path $PSScriptRoot '../artifacts/lsp-native')
+)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -57,7 +60,7 @@ serverPath = "rust-analyzer"
 checkOnSave = false
 '@)
 
-$evidence = Join-Path $PSScriptRoot '../artifacts/lsp-native'
+$evidence = $EvidenceDirectory
 New-Item -ItemType Directory -Path $evidence -Force | Out-Null
 "CODESTRIKE_LSP_FIXTURE_UTC=$([DateTime]::UtcNow.ToString('o'));workspace=$fixture;source=$source"
 "CODESTRIKE_LSP_SOURCE_URI=$(([Uri]$source).AbsoluteUri)"

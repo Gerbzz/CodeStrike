@@ -79,9 +79,20 @@ jobs:
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
           "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
-      - name: Verify Rust diagnostics and saved completion insertion in the GUI
+      # Fixed three-run acceptance, not retry-until-pass: every step is required.
+      # Each invocation creates a fresh GUID fixture and uses the same built binary.
+      - name: Verify native Rust diagnostics and saved completion (1 of 3)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
-        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt')
+        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt') -EvidenceDirectory 'artifacts/lsp-native/attempt-1'
+      - name: Verify native Rust diagnostics and saved completion (2 of 3)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt') -EvidenceDirectory 'artifacts/lsp-native/attempt-2'
+      - name: Verify native Rust diagnostics and saved completion (3 of 3)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: .\scripts\probe-rust-language-tools.ps1 -VoltPath (Join-Path $env:RUNNER_TEMP 'codestrike-rust-volt') -EvidenceDirectory 'artifacts/lsp-native/attempt-3'
       - name: Verify visible unavailable-server behavior and source integrity
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
