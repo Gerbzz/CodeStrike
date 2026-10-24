@@ -1,0 +1,63 @@
+diff --git a/lapce-app/src/about.rs b/lapce-app/src/about.rs
+--- a/lapce-app/src/about.rs
++++ b/lapce-app/src/about.rs
+@@ -100,7 +100,10 @@
+     exclusive_popup(window_tab_data, about_data.visible, move || {
+         stack((
+             img(|| {
+-                include_bytes!("../../../../assets/branding/CodeStrike.png").to_vec()
++                include_bytes!(
++                    "../../../../assets/branding/CodeStrike-geometric.png"
++                )
++                .to_vec()
+             })
+             .style(move |s| s.size(logo_size, logo_size)),
+             label(|| "CodeStrike".to_string()).style(move |s| {
+diff --git a/lapce-app/src/app.rs b/lapce-app/src/app.rs
+--- a/lapce-app/src/app.rs
++++ b/lapce-app/src/app.rs
+@@ -203,9 +203,17 @@
+     }
+ 
+     fn default_window_config(&self) -> WindowConfig {
+-        WindowConfig::default()
++        let config = WindowConfig::default()
+             .apply_default_theme(false)
+-            .title("CodeStrike")
++            .title("CodeStrike");
++        #[cfg(target_os = "windows")]
++        {
++            use floem::window::{Icon, IconExtWindows};
++            if let Ok(icon) = Icon::from_resource(1, None) {
++                return config.window_icon(icon);
++            }
++        }
++        config
+     }
+ 
+     pub fn new_window(&self, folder: Option<PathBuf>) {
+@@ -2063,7 +2071,10 @@
+     container(
+         stack((
+             img(|| {
+-                include_bytes!("../../../../assets/branding/CodeStrike.png").to_vec()
++                include_bytes!(
++                    "../../../../assets/branding/CodeStrike-geometric.png"
++                )
++                .to_vec()
+             })
+             .style(|s| s.size(112.0, 112.0)),
+             label(|| "CodeStrike".to_string()).style(move |s| {
+diff --git a/build.rs b/build.rs
+new file mode 100644
+--- /dev/null
++++ b/build.rs
+@@ -0,0 +1,8 @@
++// Root helper formatting is checked separately from Lapce's 85-column style.
++#[path = "../../build_support/windows_icon.rs"]
++#[rustfmt::skip]
++mod windows_icon;
++
++fn main() {
++    windows_icon::embed("../../assets/branding/CodeStrike-geometric.ico", "lapce");
++}

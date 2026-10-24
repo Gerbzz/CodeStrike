@@ -33,7 +33,11 @@ jobs:
           persist-credentials: false
       - name: Prepare CodeStrike candidate
         shell: pwsh
-        run: .\scripts\prepare-lapce.ps1
+        run: |
+          ./scripts/prepare-lapce.ps1
+          ./scripts/prepare-lapce-format.ps1
+          ./scripts/prepare-lapce-language.ps1
+          ./scripts/prepare-lapce-branding.ps1
       - name: Compile Windows editor
         shell: pwsh
         run: |

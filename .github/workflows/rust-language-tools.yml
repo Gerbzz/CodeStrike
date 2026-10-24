@@ -90,6 +90,7 @@ jobs:
           .\scripts\prepare-lapce.ps1
           .\scripts\prepare-lapce-format.ps1
           .\scripts\prepare-lapce-language.ps1
+          .\scripts\prepare-lapce-branding.ps1
           cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace

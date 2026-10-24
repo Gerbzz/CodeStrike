@@ -1,0 +1,96 @@
+name: CodeStrike native geometric branding
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'assets/branding/**'
+      - 'build_support/**'
+      - 'editor/patches/**'
+      - 'scripts/prepare-lapce*.ps1'
+      - 'scripts/probe-geometric-branding.ps1'
+      - 'scripts/verify_geometric_identity.py'
+      - 'scripts/test_icon_resource_verifier.py'
+      - '.github/workflows/geometric-branding.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codestrike-branding-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-lapce-branding:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      STRIKE_REQUIRE_ICON: '1'
+    steps:
+      - name: Preserve pinned upstream LF source
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: true
+          persist-credentials: false
+      - name: Parse probes and compile their managed interop definitions before the native build
+        shell: pwsh
+        run: |
+          foreach ($path in @('scripts/probe-geometric-branding.ps1', 'scripts/probe-rust-language-tools.ps1')) {
+            $tokens = $null
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+            $definitions = @($ast.FindAll({ param($node)
+              $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.Contains('public static class CodeStrike')
+            }, $true))
+            if ($definitions.Count -ne 1) { throw "Expected one managed interop definition in $path" }
+            Add-Type -TypeDefinition $definitions[0].Value
+          }
+      - name: Verify reviewed assets and preserved original artwork
+        shell: pwsh
+        run: python scripts/verify_geometric_identity.py --svg assets/branding/CodeStrike-geometric.svg --png assets/branding/CodeStrike-geometric.png --ico assets/branding/CodeStrike-geometric.ico --original assets/branding/CodeStrike.png --original-sha256 0dcdb1c9ce3c0e0189329178498b4ebab9a4663f10ca9912235cef3d833fae76
+      - name: Test icon-resource proof rejects incomplete coverage
+        shell: pwsh
+        run: python scripts/test_icon_resource_verifier.py
+      - name: Prepare selected pinned Lapce foundation
+        shell: pwsh
+        run: |
+          ./scripts/prepare-lapce.ps1
+          ./scripts/prepare-lapce-format.ps1
+          ./scripts/prepare-lapce-language.ps1
+          ./scripts/prepare-lapce-branding.ps1
+      - name: Check build helper and prepared branding-source formatting
+        shell: pwsh
+        run: |
+          rustfmt --edition 2024 --check build_support/windows_icon.rs
+          if ($LASTEXITCODE -ne 0) { throw 'Brand resource helper formatting failed.' }
+          rustfmt --edition 2024 --config skip_children=true,max_width=85 --check editor/lapce/lapce-app/src/app.rs editor/lapce/lapce-app/src/about.rs editor/lapce/build.rs
+          if ($LASTEXITCODE -ne 0) { throw 'Prepared branding-source formatting failed.' }
+      - name: Build selected native editor with required Windows icon
+        id: build
+        shell: pwsh
+        run: |
+          cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
+          if ($LASTEXITCODE -ne 0) { throw 'Selected Lapce native build failed.' }
+          Copy-Item -LiteralPath editor/lapce/target/debug/lapce.exe -Destination editor/lapce/target/debug/CodeStrike.exe
+      - name: Prove selected executable embeds all reviewed icon sizes
+        shell: pwsh
+        run: python scripts/verify_geometric_identity.py --svg assets/branding/CodeStrike-geometric.svg --png assets/branding/CodeStrike-geometric.png --ico assets/branding/CodeStrike-geometric.ico --original assets/branding/CodeStrike.png --original-sha256 0dcdb1c9ce3c0e0189329178498b4ebab9a4663f10ca9912235cef3d833fae76 --exe editor/lapce/target/debug/CodeStrike.exe
+      - name: Capture genuine native startup and About branding
+        shell: pwsh
+        run: ./scripts/probe-geometric-branding.ps1
+      - name: Upload app-only captures and native proof
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codestrike-geometric-native-proof
+          path: ${{ runner.temp }}/codestrike-branding-evidence
+          retention-days: 30
+          if-no-files-found: error

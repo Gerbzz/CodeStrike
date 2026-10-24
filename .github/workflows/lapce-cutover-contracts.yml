@@ -26,4 +26,5 @@ jobs:
       - run: python scripts/tests/test_lapce_cutover.py
       - run: python scripts/tests/test_launcher.py
       - run: python scripts/tests/test_reviewed_language_route.py
+      - run: python scripts/tests/test_geometric_integration.py
       - run: cargo test --locked

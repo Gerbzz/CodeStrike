@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/CodeStrike.png" alt="Original CodeStrike octopus mark" width="144" height="144">
+  <img src="assets/branding/CodeStrike-geometric.svg" alt="CodeStrike geometric source-scope mark" width="144" height="144">
 </p>
 
 <h1 align="center">CodeStrike</h1>
