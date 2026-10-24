@@ -1,5 +1,7 @@
 name: CodeStrike stock diagnostic configuration audit
 on:
+  pull_request:
+    branches: [gerbzz/lapce-only-cutover]
   push:
     branches: [gerbzz/stock-diagnostic-audit]
 permissions:
