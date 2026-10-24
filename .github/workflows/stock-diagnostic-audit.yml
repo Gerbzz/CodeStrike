@@ -24,3 +24,11 @@ jobs:
       - name: Compare false and true using trusted offline fixtures
         shell: pwsh
         run: python scripts/analyzer/probe-stock-diagnostics.py --binary (Get-Command rust-analyzer).Source
+
+      - name: Retain diagnostic comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-diagnostic-comparison
+          path: artifacts/stock-diagnostics.json
+          if-no-files-found: warn

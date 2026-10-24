@@ -56,6 +56,9 @@ def main():
                           'fixture_unchanged':source.read_bytes()==INVALID.encode()}
                 print(json.dumps(result), flush=True)
                 results.append(result)
+                evidence = Path('artifacts/stock-diagnostics.json')
+                evidence.parent.mkdir(parents=True, exist_ok=True)
+                evidence.write_text(json.dumps(results, indent=2), encoding='utf-8')
                 assert result['fixture_unchanged']
             finally:
                 client.close()
