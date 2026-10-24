@@ -3,3 +3,4 @@ third_party/rust-analyzer/*.patch text eol=lf -whitespace
 editor/patches/codestrike-format.patch text eol=lf -whitespace
 
 editor/patches/codestrike-save-capability.patch text eol=lf -whitespace
+editor/patches/codestrike-geometric-overlay.patch text eol=lf -whitespace

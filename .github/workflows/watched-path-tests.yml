@@ -30,7 +30,11 @@ jobs:
           persist-credentials: false
       - name: Apply the candidate patch
         shell: pwsh
-        run: .\scripts\prepare-lapce.ps1
+        run: |
+          ./scripts/prepare-lapce.ps1
+          ./scripts/prepare-lapce-format.ps1
+          ./scripts/prepare-lapce-language.ps1
+          ./scripts/prepare-lapce-branding.ps1
       - name: Test exact and Windows-equivalent watched file paths
         shell: pwsh
         run: cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-proxy codestrike_watched_path_tests --lib

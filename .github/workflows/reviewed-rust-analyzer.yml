@@ -249,6 +249,9 @@ jobs:
           Copy-Item (Join-Path $env:RUNNER_TEMP 'volt-target/wasm32-wasip1/release/lapce-rust.wasm') (Join-Path $volt 'lapce-rust.wasm')
           Copy-Item rust-volt-source/volt.toml, rust-volt-source/LICENSE, rust-volt-source/rust-logo.png $volt
           .\scripts\prepare-lapce.ps1
+          .\scripts\prepare-lapce-format.ps1
+          .\scripts\prepare-lapce-language.ps1
+          .\scripts\prepare-lapce-branding.ps1
           cargo +1.97.1 build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
           if ($LASTEXITCODE -ne 0) { throw 'Current-main CodeStrike app build failed' }
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe

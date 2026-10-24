@@ -59,13 +59,15 @@ jobs:
           git -C editor/lapce rev-parse HEAD
       - name: Prepare local CodeStrike candidate
         shell: pwsh
-        run: .\scripts\prepare-lapce.ps1
+        run: ./scripts/prepare-lapce.ps1
       - name: Apply formatting-only overlay without replacing donor patch
         shell: pwsh
         run: .\scripts\prepare-lapce-format.ps1
       - name: Apply reviewed dynamic save registration repair
         shell: pwsh
-        run: .\scripts\prepare-lapce-language.ps1
+        run: |
+          .\scripts\prepare-lapce-language.ps1
+          .\scripts\prepare-lapce-branding.ps1
       - name: Verify formatting
         shell: pwsh
         run: cargo fmt --manifest-path editor/lapce/Cargo.toml --all -- --check

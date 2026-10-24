@@ -90,10 +90,18 @@ jobs:
           .\scripts\prepare-lapce.ps1
           .\scripts\prepare-lapce-format.ps1
           .\scripts\prepare-lapce-language.ps1
+          .\scripts\prepare-lapce-branding.ps1
           cargo build --manifest-path editor/lapce/Cargo.toml --locked --bin lapce
           Copy-Item editor/lapce/target/debug/lapce.exe editor/lapce/target/debug/CodeStrike.exe
           $free = [System.IO.DriveInfo]::new('C').AvailableFreeSpace
           "Runner free space after build: {0:N2} GiB" -f ($free / 1GB)
+      - name: Test native UI observation predicate and capture readiness
+        shell: pwsh
+        run: |
+          cargo test --manifest-path editor/lapce/Cargo.toml --locked -p lapce-app completion_observation_tests --lib
+          if ($LASTEXITCODE -ne 0) { throw 'Completion observation source tests failed.' }
+          .\scripts\tests\test-lsp-readiness.ps1
+          .\scripts\tests\test-lsp-finalization.ps1
       # Fixed three-run acceptance, not retry-until-pass: every step is required.
       # Each invocation creates a fresh GUID fixture and uses the same built binary.
       - name: Verify native Rust diagnostics and saved completion (1 of 3)
