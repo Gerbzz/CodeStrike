@@ -1,0 +1,26 @@
+name: CodeStrike stock diagnostic configuration audit
+on:
+  push:
+    branches: [gerbzz/stock-diagnostic-audit]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Record exact installed toolchain
+        shell: pwsh
+        run: |
+          rustup component add rust-analyzer
+          rust-analyzer --version
+          rustc --version
+      - name: Compare false and true using trusted offline fixtures
+        shell: pwsh
+        run: python scripts/analyzer/probe-stock-diagnostics.py --binary (Get-Command rust-analyzer).Source
