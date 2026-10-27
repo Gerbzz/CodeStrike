@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">CodeStrike</title>
+  <desc id="desc">A blue source file with a folded corner and a clear code cutout, set over an offset file. Original two-colour vector artwork.</desc>
+  <path fill="#69A8FF" d="M88 80h224v56H144v240H88z"/>
+  <path fill="#215CDB" fill-rule="evenodd" d="M168 136h168l88 88v208H168zM248 256l-48 48 48 48 20-20-28-28 28-28zM344 256l-20 20 28 28-28 28 20 20 48-48zM300 248l-28 112h20l28-112z"/>
+  <path fill="#69A8FF" d="M336 136v88h88z"/>
+</svg>
